@@ -52,7 +52,6 @@ struct WIFI {
   uint8_t status;
   uint8_t config_type = 0;
   uint8_t config_counter = 0;
-  uint8_t mdns_begun = 0;                  // mDNS active
   uint8_t scan_state;
   uint8_t bssid[6];
   int8_t best_network_db;
@@ -154,14 +153,11 @@ void WiFiSetSleepMode(void)
  */
 
 // Sleep explanation: https://github.com/esp8266/Arduino/blob/3f0c601cfe81439ce17e9bd5d28994a7ed144482/libraries/ESP8266WiFi/src/ESP8266WiFiGeneric.cpp#L255
-#if defined(ARDUINO_ESP8266_RELEASE_2_4_1) || defined(ARDUINO_ESP8266_RELEASE_2_4_2)
-#else  // Enabled in 2.3.0, 2.4.0 and stage
-  if (sleep && Settings.flag3.sleep_normal) {  // SetOption60 - Enable normal sleep instead of dynamic sleep
-    WiFi.setSleepMode(WIFI_LIGHT_SLEEP);       // Allow light sleep during idle times
+  if (ssleep && Settings.flag3.sleep_normal) {  // SetOption60 - Enable normal sleep instead of dynamic sleep
+    WiFi.setSleepMode(WIFI_LIGHT_SLEEP);        // Allow light sleep during idle times
   } else {
-    WiFi.setSleepMode(WIFI_MODEM_SLEEP);       // Disable sleep (Esp8288/Arduino core and sdk default)
+    WiFi.setSleepMode(WIFI_MODEM_SLEEP);        // Disable sleep (Esp8288/Arduino core and sdk default)
   }
-#endif
   WifiSetOutputPower();
 }
 
@@ -172,12 +168,6 @@ void WifiBegin(uint8_t flag, uint8_t channel)
 #ifdef USE_EMULATION
   UdpDisconnect();
 #endif  // USE_EMULATION
-
-#ifdef ARDUINO_ESP8266_RELEASE_2_3_0  // (!strncmp_P(ESP.getSdkVersion(),PSTR("1.5.3"),5))
-  AddLog_P(LOG_LEVEL_DEBUG, S_LOG_WIFI, PSTR(D_PATCH_ISSUE_2186));
-//  WiFi.mode(WIFI_OFF);      // See https://github.com/esp8266/Arduino/issues/2186
-  WifiSetMode(WIFI_OFF);
-#endif
 
   WiFi.persistent(false);   // Solve possible wifi init errors (re-add at 6.2.1.16 #4044, #4083)
   WiFi.disconnect(true);    // Delete SDK wifi config
@@ -352,6 +342,9 @@ void WifiSetState(uint8_t state)
     }
   }
   global_state.wifi_down = state ^1;
+  if (!global_state.wifi_down) {
+    global_state.network_down = 0;
+  }
 }
 
 #if LWIP_IPV6
@@ -401,14 +394,16 @@ void WifiCheckIp(void)
       Settings.ip_address[1] = (uint32_t)WiFi.gatewayIP();
       Settings.ip_address[2] = (uint32_t)WiFi.subnetMask();
       Settings.ip_address[3] = (uint32_t)WiFi.dnsIP();
+
+      // Save current AP parameters for quick reconnect
+      Settings.wifi_channel = WiFi.channel();
+      uint8_t *bssid = WiFi.BSSID();
+      memcpy((void*) &Settings.wifi_bssid, (void*) bssid, sizeof(Settings.wifi_bssid));
     }
     Wifi.status = WL_CONNECTED;
 #ifdef USE_DISCOVERY
 #ifdef WEBSERVER_ADVERTISE
-    if (2 == Wifi.mdns_begun) {
-      MDNS.update();
-      AddLog_P(LOG_LEVEL_DEBUG_MORE, D_LOG_MDNS, "MDNS.update");
-    }
+    MdnsUpdate();
 #endif  // USE_DISCOVERY
 #endif  // WEBSERVER_ADVERTISE
   } else {
@@ -423,6 +418,7 @@ void WifiCheckIp(void)
         break;
       case WL_NO_SSID_AVAIL:
         AddLog_P(LOG_LEVEL_INFO, S_LOG_WIFI, PSTR(D_CONNECT_FAILED_AP_NOT_REACHED));
+        Settings.wifi_channel = 0;  // Disable stored AP
         if (WIFI_WAIT == Settings.sta_config) {
           Wifi.retry = Wifi.retry_init;
         } else {
@@ -436,6 +432,7 @@ void WifiCheckIp(void)
         break;
       case WL_CONNECT_FAILED:
         AddLog_P(LOG_LEVEL_INFO, S_LOG_WIFI, PSTR(D_CONNECT_FAILED_WRONG_PASSWORD));
+        Settings.wifi_channel = 0;  // Disable stored AP
         if (Wifi.retry > (Wifi.retry_init / 2)) {
           Wifi.retry = Wifi.retry_init / 2;
         }
@@ -446,8 +443,10 @@ void WifiCheckIp(void)
       default:  // WL_IDLE_STATUS and WL_DISCONNECTED
         if (!Wifi.retry || ((Wifi.retry_init / 2) == Wifi.retry)) {
           AddLog_P(LOG_LEVEL_INFO, S_LOG_WIFI, PSTR(D_CONNECT_FAILED_AP_TIMEOUT));
+          Settings.wifi_channel = 0;  // Disable stored AP
         } else {
           if (!strlen(SettingsText(SET_STASSID1)) && !strlen(SettingsText(SET_STASSID2))) {
+            Settings.wifi_channel = 0;  // Disable stored AP
             wifi_config_tool = WIFI_MANAGER;  // Skip empty SSIDs and start Wifi config tool
             Wifi.retry = 0;
           } else {
@@ -462,7 +461,7 @@ void WifiCheckIp(void)
         }
       } else {
         if (Wifi.retry_init == Wifi.retry) {
-          WifiBegin(3, 0);        // Select default SSID
+          WifiBegin(3, Settings.wifi_channel);  // Select default SSID
         }
         if ((Settings.sta_config != WIFI_WAIT) && ((Wifi.retry_init / 2) == Wifi.retry)) {
           WifiBegin(2, 0);        // Select alternate SSID
@@ -520,74 +519,14 @@ void WifiCheck(uint8_t param)
       if ((WL_CONNECTED == WiFi.status()) && (static_cast<uint32_t>(WiFi.localIP()) != 0) && !Wifi.config_type) {
 #endif  // LWIP_IPV6=1
         WifiSetState(1);
-
         if (Settings.flag3.use_wifi_rescan) {  // SetOption57 - Scan wifi network every 44 minutes for configured AP's
           if (!(uptime % (60 * WIFI_RESCAN_MINUTES))) {
             Wifi.scan_state = 2;
           }
         }
-
-#ifdef FIRMWARE_MINIMAL
-        if (1 == RtcSettings.ota_loader) {
-          RtcSettings.ota_loader = 0;
-          ota_state_flag = 3;
-        }
-#endif  // FIRMWARE_MINIMAL
-
-#ifdef USE_DISCOVERY
-        if (Settings.flag3.mdns_enabled) {  // SetOption55 - Control mDNS service
-          if (!Wifi.mdns_begun) {
-//            if (mdns_delayed_start) {
-//              AddLog_P(LOG_LEVEL_INFO, PSTR(D_LOG_MDNS D_ATTEMPTING_CONNECTION));
-//              mdns_delayed_start--;
-//            } else {
-//              mdns_delayed_start = Settings.param[P_MDNS_DELAYED_START];
-              Wifi.mdns_begun = (uint8_t)MDNS.begin(my_hostname);
-              AddLog_P2(LOG_LEVEL_INFO, PSTR(D_LOG_MDNS "%s"), (Wifi.mdns_begun) ? D_INITIALIZED : D_FAILED);
-//            }
-          }
-        }
-#endif  // USE_DISCOVERY
-
-#ifdef USE_WEBSERVER
-        if (Settings.webserver) {
-          StartWebserver(Settings.webserver, WiFi.localIP());
-#ifdef USE_DISCOVERY
-#ifdef WEBSERVER_ADVERTISE
-          if (1 == Wifi.mdns_begun) {
-            Wifi.mdns_begun = 2;
-            MDNS.addService("http", "tcp", WEB_PORT);
-          }
-#endif  // WEBSERVER_ADVERTISE
-#endif  // USE_DISCOVERY
-        } else {
-          StopWebserver();
-        }
-#ifdef USE_EMULATION
-#ifdef USE_DEVICE_GROUPS
-        if (Settings.flag2.emulation || Settings.flag4.device_groups_enabled) { UdpConnect(); }
-#else // USE_DEVICE_GROUPS
-      if (Settings.flag2.emulation) { UdpConnect(); }
-#endif // USE_DEVICE_GROUPS
-#endif  // USE_EMULATION
-#endif  // USE_WEBSERVER
-
-#ifdef USE_KNX
-        if (!knx_started && Settings.flag.knx_enabled) {  // CMND_KNX_ENABLED
-          KNXStart();
-          knx_started = true;
-        }
-#endif  // USE_KNX
-
       } else {
         WifiSetState(0);
-#ifdef USE_EMULATION
-        UdpDisconnect();
-#endif  // USE_EMULATION
-        Wifi.mdns_begun = 0;
-#ifdef USE_KNX
-        knx_started = false;
-#endif  // USE_KNX
+        Mdns.begun = 0;
       }
     }
   }
@@ -642,13 +581,17 @@ RF_PRE_INIT()
 
 void WifiConnect(void)
 {
+  if (!Settings.flag4.network_wifi) { return; }
+
   WifiSetState(0);
   WifiSetOutputPower();
   WiFi.persistent(false);     // Solve possible wifi init errors
   Wifi.status = 0;
-  Wifi.retry_init = WIFI_RETRY_OFFSET_SEC + (ESP.getChipId() & 0xF);  // Add extra delay to stop overrun by simultanous re-connects
+  Wifi.retry_init = WIFI_RETRY_OFFSET_SEC + (ESP_getChipId() & 0xF);  // Add extra delay to stop overrun by simultanous re-connects
   Wifi.retry = Wifi.retry_init;
   Wifi.counter = 1;
+
+  memcpy((void*) &Wifi.bssid, (void*) Settings.wifi_bssid, sizeof(Wifi.bssid));
 
 #ifdef WIFI_RF_PRE_INIT
   if (rf_pre_init_flag) {
@@ -694,8 +637,56 @@ void WifiShutdown(bool option = false)
 
 void EspRestart(void)
 {
+  ResetPwm();
   WifiShutdown(true);
   CrashDumpClear();           // Clear the stack dump in RTC
-//  ESP.restart();            // This results in exception 3 on restarts on core 2.3.0
-  ESP.reset();
+  ESP_Restart();
+}
+
+//
+// Gratuitous ARP, backported from https://github.com/esp8266/Arduino/pull/6889
+//
+extern "C" {
+#if LWIP_VERSION_MAJOR == 1
+#include "netif/wlan_lwip_if.h" // eagle_lwip_getif()
+#include "netif/etharp.h" // gratuitous arp
+#else
+#include "lwip/etharp.h" // gratuitous arp
+#endif
+}
+
+unsigned long wifiTimer = 0;
+
+void stationKeepAliveNow(void) {
+  AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_WIFI "Sending Gratuitous ARP"));
+  for (netif* interface = netif_list; interface != nullptr; interface = interface->next)
+    if (
+          (interface->flags & NETIF_FLAG_LINK_UP)
+      && (interface->flags & NETIF_FLAG_UP)
+#if LWIP_VERSION_MAJOR == 1
+      && interface == eagle_lwip_getif(STATION_IF) /* lwip1 does not set if->num properly */
+      && (!ip_addr_isany(&interface->ip_addr))
+#else
+      && interface->num == STATION_IF
+      && (!ip4_addr_isany_val(*netif_ip4_addr(interface)))
+#endif
+  )
+  {
+    etharp_gratuitous(interface);
+    break;
+  }
+}
+
+void wifiKeepAlive(void) {
+  uint32_t wifiTimerSec = Settings.param[P_ARP_GRATUITOUS];   // 8-bits number of seconds, or minutes if > 100
+
+  if ((WL_CONNECTED != Wifi.status) || (0 == wifiTimerSec)) { return; }   // quick exit if wifi not connected or feature disabled
+
+  if (TimeReached(wifiTimer)) {
+    stationKeepAliveNow();
+    if (wifiTimerSec > 100) {
+      wifiTimerSec = (wifiTimerSec - 100) * 60;                 // convert >100 as minutes, ex: 105 = 5 minutes, 110 = 10 minutes
+    }
+    SetNextTimeInterval(wifiTimer, wifiTimerSec * 1000);
+  }
 }

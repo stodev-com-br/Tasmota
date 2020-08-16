@@ -304,10 +304,10 @@ void Ds18x20Init(void)
 {
   uint64_t ids[DS18X20_MAX_SENSORS];
 
-  ds18x20_pin = pin[GPIO_DSB];
+  ds18x20_pin = Pin(GPIO_DSB);
 
-  if (pin[GPIO_DSB_OUT] < 99) {
-    ds18x20_pin_out = pin[GPIO_DSB_OUT];
+  if (PinUsed(GPIO_DSB_OUT)) {
+    ds18x20_pin_out = Pin(GPIO_DSB_OUT);
     ds18x20_dual_mode = true;    // Dual pins mode as used by Shelly
     pinMode(ds18x20_pin_out, OUTPUT);
     pinMode(ds18x20_pin, Settings.flag3.ds18x20_internal_pullup ? INPUT_PULLUP : INPUT);  // SetOption74 - Enable internal pullup for single DS18x20 sensor
@@ -375,12 +375,19 @@ bool Ds18x20Read(uint8_t sensor)
     if (OneWireCrc8(data)) {
       switch(ds18x20_sensor[index].address[0]) {
         case DS18S20_CHIPID: {
+/*
           if (data[1] > 0x80) {
             data[0] = (~data[0]) +1;
             sign = -1;                     // App-Note fix possible sign error
           }
           float temp9 = (float)(data[0] >> 1) * sign;
           ds18x20_sensor[index].temperature = ConvertTemp((temp9 - 0.25) + ((16.0 - data[6]) / 16.0));
+
+          Replaced by below based on issue #8777
+*/
+          int16_t tempS = (((data[1] << 8) | (data[0] & 0xFE)) << 3) | ((0x10 - data[6]) & 0x0F);
+          ds18x20_sensor[index].temperature = ConvertTemp(tempS * 0.0625 - 0.250);
+
           ds18x20_sensor[index].valid = SENSOR_MAX_MISS;
           return true;
         }
@@ -518,7 +525,7 @@ bool Xsns05(uint8_t function)
 {
   bool result = false;
 
-  if (pin[GPIO_DSB] < 99) {
+  if (PinUsed(GPIO_DSB)) {
     switch (function) {
       case FUNC_INIT:
         Ds18x20Init();
