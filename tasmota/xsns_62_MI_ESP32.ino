@@ -20,6 +20,12 @@
   --------------------------------------------------------------------------------------------
   Version yyyymmdd  Action    Description
   --------------------------------------------------------------------------------------------
+  0.9.1.3 20200926  changed - Improve HA discovery, make key+MAC case insensitive
+  -------
+  0.9.1.3 20200916  changed - add ATC (custom FW for LYWSD03MMC), API adaption for NimBLE-Arduino 1.0.2
+  -------
+  0.9.1.2 20200802  changed - add MHO-C303
+  -------
   0.9.1.1 20200715  changed - add MHO-C401, refactoring
   -------
   0.9.1.0 20200712  changed - add lights and yeerc, add pure passive mode with decryption,
@@ -162,6 +168,15 @@ union mi_bindKey_t{
   uint8_t buf[22];
 };
 
+struct ATCPacket_t{
+  uint8_t MAC[6];
+  int16_t temp; //sadly this is in wrong endianess
+  uint8_t hum;
+  uint8_t batPer;
+  uint16_t batMV;
+  uint8_t frameCnt;
+};
+
 #pragma pack(0)
 
 struct mi_sensor_t{
@@ -250,10 +265,12 @@ const char kMI32_Commands[] PROGMEM             = "Period|Time|Page|Battery|Unit
 #define MJYD2S      8
 #define YEERC       9
 #define MHOC401     10
+#define MHOC303     11
+#define ATC         12
 
-#define MI_TYPES    10 //count this manually
+#define MI32_TYPES    12 //count this manually
 
-const uint16_t kMI32DeviceID[MI_TYPES]={ 0x0098, // Flora
+const uint16_t kMI32DeviceID[MI32_TYPES]={ 0x0098, // Flora
                                   0x01aa, // MJ_HT_V1
                                   0x045b, // LYWSD02
                                   0x055b, // LYWSD03
@@ -262,7 +279,9 @@ const uint16_t kMI32DeviceID[MI_TYPES]={ 0x0098, // Flora
                                   0x03dd, // NLIGHT
                                   0x07f6, // MJYD2S
                                   0x0153, // yee-rc
-                                  0x0387  // MHO-C401
+                                  0x0387, // MHO-C401
+                                  0x06d3, // MHO-C303
+                                  0x0a1c  // ATC -> this is a fake ID
                                   };
 
 const char kMI32DeviceType1[] PROGMEM = "Flora";
@@ -275,7 +294,9 @@ const char kMI32DeviceType7[] PROGMEM = "NLIGHT";
 const char kMI32DeviceType8[] PROGMEM = "MJYD2S";
 const char kMI32DeviceType9[] PROGMEM = "YEERC";
 const char kMI32DeviceType10[] PROGMEM ="MHOC401";
-const char * kMI32DeviceType[] PROGMEM = {kMI32DeviceType1,kMI32DeviceType2,kMI32DeviceType3,kMI32DeviceType4,kMI32DeviceType5,kMI32DeviceType6,kMI32DeviceType7,kMI32DeviceType8,kMI32DeviceType9,kMI32DeviceType10};
+const char kMI32DeviceType11[] PROGMEM ="MHOC303";
+const char kMI32DeviceType12[] PROGMEM ="ATC";
+const char * kMI32DeviceType[] PROGMEM = {kMI32DeviceType1,kMI32DeviceType2,kMI32DeviceType3,kMI32DeviceType4,kMI32DeviceType5,kMI32DeviceType6,kMI32DeviceType7,kMI32DeviceType8,kMI32DeviceType9,kMI32DeviceType10,kMI32DeviceType11,kMI32DeviceType12};
 
 /*********************************************************************************************\
  * enumerations
@@ -328,13 +349,13 @@ class MI32SensorCallback : public NimBLEClientCallbacks {
 
 class MI32AdvCallbacks: public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice* advertisedDevice) {
-    // AddLog_P2(LOG_LEVEL_DEBUG,PSTR("Advertised Device: %s Buffer: %u"),advertisedDevice->getAddress().toString().c_str(),advertisedDevice->getServiceData().length());
-    if (advertisedDevice->getServiceData().length() == 0) {
-      // AddLog_P2(LOG_LEVEL_DEBUG,PSTR("No Xiaomi Device: %s Buffer: %u"),advertisedDevice->getAddress().toString().c_str(),advertisedDevice->getServiceData().length());
+    // AddLog_P2(LOG_LEVEL_DEBUG,PSTR("Advertised Device: %s Buffer: %u"),advertisedDevice->getAddress().toString().c_str(),advertisedDevice->getServiceData(0).length());
+    if (advertisedDevice->getServiceDataCount() == 0) {
+      // AddLog_P2(LOG_LEVEL_DEBUG,PSTR("No Xiaomi Device: %s Buffer: %u"),advertisedDevice->getAddress().toString().c_str(),advertisedDevice->getServiceData(0).length());
       MI32Scan->erase(advertisedDevice->getAddress());
       return;
     }
-    uint16_t uuid = advertisedDevice->getServiceDataUUID().getNative()->u16.value;
+    uint16_t uuid = advertisedDevice->getServiceDataUUID(0).getNative()->u16.value;
     // AddLog_P2(LOG_LEVEL_DEBUG,PSTR("UUID: %x"),uuid);
     uint8_t addr[6];
     memcpy(addr,advertisedDevice->getAddress().getNative(),6);
@@ -345,14 +366,17 @@ class MI32AdvCallbacks: public NimBLEAdvertisedDeviceCallbacks {
     }
     // AddLog_P2(LOG_LEVEL_DEBUG,PSTR("RSSI: %d"),rssi); // actually i never got a 0xffff
     if(uuid==0xfe95) {
-      MI32ParseResponse((char*)advertisedDevice->getServiceData().data(),advertisedDevice->getServiceData().length(), addr, rssi);
+      MI32ParseResponse((char*)advertisedDevice->getServiceData(0).data(),advertisedDevice->getServiceData(0).length(), addr, rssi);
     }
     else if(uuid==0xfdcd) {
-      MI32parseCGD1Packet((char*)advertisedDevice->getServiceData().data(),advertisedDevice->getServiceData().length(), addr, rssi);
+      MI32parseCGD1Packet((char*)advertisedDevice->getServiceData(0).data(),advertisedDevice->getServiceData(0).length(), addr, rssi);
+    }
+    else if(uuid==0x181a) { //ATC
+      MI32ParseATCPacket((char*)advertisedDevice->getServiceData(0).data(),advertisedDevice->getServiceData(0).length(), addr, rssi);
     }
     else {
+      // AddLog_P2(LOG_LEVEL_DEBUG,PSTR("No Xiaomi Device: %x: %s Buffer: %u"), uuid, advertisedDevice->getAddress().toString().c_str(),advertisedDevice->getServiceData(0).length());
       MI32Scan->erase(advertisedDevice->getAddress());
-      // AddLog_P2(LOG_LEVEL_DEBUG,PSTR("No Xiaomi Device: %s Buffer: %u"),advertisedDevice->getAddress().toString().c_str(),advertisedDevice->getServiceData().length());
     }
   };
 };
@@ -399,6 +423,7 @@ void MI32_ReverseMAC(uint8_t _mac[]){
 void MI32AddKey(char* payload){
   mi_bindKey_t keyMAC;
   memset(keyMAC.buf,0,sizeof(keyMAC));
+  UpperCase(payload,payload);
   MI32KeyMACStringToBytes(payload,keyMAC.buf);
   bool unknownKey = true;
   for(uint32_t i=0; i<MIBLEbindKeys.size(); i++){
@@ -530,7 +555,7 @@ uint32_t MIBLEgetSensorSlot(uint8_t (&_MAC)[6], uint16_t _type, uint8_t counter)
 
   DEBUG_SENSOR_LOG(PSTR("%s: will test ID-type: %x"),D_CMND_MI32, _type);
   bool _success = false;
-  for (uint32_t i=0;i<MI_TYPES;i++){ // i < sizeof(kMI32DeviceID) gives compiler warning
+  for (uint32_t i=0;i<MI32_TYPES;i++){ // i < sizeof(kMI32DeviceID) gives compiler warning
     if(_type == kMI32DeviceID[i]){
       DEBUG_SENSOR_LOG(PSTR("MI32: ID is type %u"), i);
       _type = i+1;
@@ -744,12 +769,12 @@ void MI32StartScanTask(){
 
 void MI32ScanTask(void *pvParameters){
   if (MI32Scan == nullptr) MI32Scan = NimBLEDevice::getScan();
-  DEBUG_SENSOR_LOG(PSTR("%s: Scan Cache Length: %u"),D_CMND_MI32, MI32Scan->getResults().getCount());
+  // DEBUG_SENSOR_LOG(PSTR("%s: Scan Cache Length: %u"),D_CMND_MI32, MI32Scan->getResults().getCount());
   MI32Scan->setInterval(70);
   MI32Scan->setWindow(50);
   MI32Scan->setAdvertisedDeviceCallbacks(&MI32ScanCallbacks,true);
   MI32Scan->setActiveScan(false);
-  MI32Scan->start(0, MI32scanEndedCB, true); // never stop scanning, will pause automaically while connecting
+  MI32Scan->start(0, MI32scanEndedCB, true); // never stop scanning, will pause automatically while connecting
 
   uint32_t timer = 0;
   for(;;){
@@ -836,7 +861,7 @@ bool MI32connectLYWSD03forNotification(){
   }
   if (pChr){
     if(pChr->canNotify()) {
-      if(pChr->subscribe(true,false,MI32notifyCB)) {
+      if(pChr->subscribe(true,MI32notifyCB,false)) {
         return true;
       }
     }
@@ -859,12 +884,11 @@ void MI32StartTimeTask(){
 }
 
 void MI32TimeTask(void *pvParameters){
-  if (MIBLEsensors[MI32.state.sensor].type != LYWSD02) {
+  if (MIBLEsensors[MI32.state.sensor].type != LYWSD02 && MIBLEsensors[MI32.state.sensor].type != MHOC303) {
       MI32.mode.shallSetTime = 0;
       vTaskDelete( NULL );
     }
-
-  if(MI32ConnectActiveSensor()){  
+  if(MI32ConnectActiveSensor()){
     uint32_t timer = 0;
     while (MI32.mode.connected == 0){
         if (timer>1000){
@@ -925,7 +949,7 @@ void MI32StartUnitTask(){
 }
 
 void MI32UnitTask(void *pvParameters){
-  if (MIBLEsensors[MI32.state.sensor].type != LYWSD02) {
+  if (MIBLEsensors[MI32.state.sensor].type != LYWSD02 && MIBLEsensors[MI32.state.sensor].type != MHOC303) {
       MI32.mode.shallSetUnit = 0;
       vTaskDelete( NULL );
     }
@@ -1247,6 +1271,25 @@ if (MIBLEsensors[_slot].type==NLIGHT){
   MI32.mode.shallTriggerTele = 1;
 }
 
+void MI32ParseATCPacket(char * _buf, uint32_t length, uint8_t addr[6], int rssi){
+  ATCPacket_t *_packet = (ATCPacket_t*)_buf;
+  uint32_t _slot = MIBLEgetSensorSlot(_packet->MAC, 0x0a1c, _packet->frameCnt); // This must be a hard-coded fake ID
+  AddLog_P2(LOG_LEVEL_DEBUG,PSTR("%s at slot %u"), kMI32DeviceType[MIBLEsensors[_slot].type-1],_slot);
+  if(_slot==0xff) return;
+
+  MIBLEsensors[_slot].rssi=rssi;
+
+  MIBLEsensors.at(_slot).temp = (float)(__builtin_bswap16(_packet->temp))/10.0f;
+  MIBLEsensors.at(_slot).hum = (float)_packet->hum;
+  MIBLEsensors[_slot].eventType.tempHum  = 1;
+  MIBLEsensors.at(_slot).bat = _packet->batPer;
+  MIBLEsensors[_slot].eventType.bat  = 1;
+
+  MIBLEsensors[_slot].shallSendMQTT = 1;
+  MI32.mode.shallTriggerTele = 1;
+
+}
+
 void MI32parseCGD1Packet(char * _buf, uint32_t length, uint8_t addr[6], int rssi){ // no MiBeacon
   uint8_t _addr[6];
   memcpy(_addr,addr,6);
@@ -1497,7 +1540,7 @@ bool MI32Cmd(void) {
       case CMND_MI32_TIME:
         if (XdrvMailbox.data_len > 0) {
           if(MIBLEsensors.size()>XdrvMailbox.payload){
-            if(MIBLEsensors[XdrvMailbox.payload].type == LYWSD02){
+            if(MIBLEsensors[XdrvMailbox.payload].type == LYWSD02 || MIBLEsensors[XdrvMailbox.payload].type == MHOC303){
               AddLog_P2(LOG_LEVEL_DEBUG,PSTR("%s: will set Time"),D_CMND_MI32);
               MI32.state.sensor = XdrvMailbox.payload;
               MI32.mode.canScan = 0;
@@ -1512,7 +1555,7 @@ bool MI32Cmd(void) {
       case CMND_MI32_UNIT:
         if (XdrvMailbox.data_len > 0) {
           if(MIBLEsensors.size()>XdrvMailbox.payload){
-            if(MIBLEsensors[XdrvMailbox.payload].type == LYWSD02){
+            if(MIBLEsensors[XdrvMailbox.payload].type == LYWSD02 || MIBLEsensors[XdrvMailbox.payload].type == MHOC303){
               AddLog_P2(LOG_LEVEL_DEBUG,PSTR("%s: will set Unit"),D_CMND_MI32);
               MI32.state.sensor = XdrvMailbox.payload;
               MI32.mode.canScan = 0;
@@ -1564,7 +1607,7 @@ bool MI32Cmd(void) {
 \*********************************************************************************************/
 
 const char HTTP_MI32[] PROGMEM = "{s}MI ESP32 {m}%u%s / %u{e}";
-const char HTTP_MI32_SERIAL[] PROGMEM = "{s}%s %s{m}%02x:%02x:%02x:%02x:%02x:%02x%{e}";
+const char HTTP_MI32_MAC[] PROGMEM = "{s}%s %s{m}%s{e}";
 const char HTTP_RSSI[] PROGMEM = "{s}%s " D_RSSI "{m}%d dBm{e}";
 const char HTTP_BATTERY[] PROGMEM = "{s}%s" " Battery" "{m}%u %%{e}";
 const char HTTP_LASTBUTTON[] PROGMEM = "{s}%s Last Button{m}%u {e}";
@@ -1576,6 +1619,15 @@ const char HTTP_MI32_HL[] PROGMEM = "{s}<hr>{m}<hr>{e}";
 void MI32Show(bool json)
 {
   if (json) {
+#ifdef USE_HOME_ASSISTANT
+    bool _noSummarySave = MI32.option.noSummary;
+    bool _minimalSummarySave = MI32.option.minimalSummary;
+    if(hass_mode==2){
+      MI32.option.noSummary = false;
+      MI32.option.minimalSummary = false;
+    }
+#endif //USE_HOME_ASSISTANT
+
     if(!MI32.mode.triggeredTele){
       MI32.mode.shallClearResults=1;
       if(MI32.option.noSummary) return; // no message at TELEPERIOD
@@ -1595,7 +1647,11 @@ void MI32Show(bool json)
         bool tempHumSended = false;
         if(MIBLEsensors[i].feature.tempHum){
           if(MIBLEsensors[i].eventType.tempHum || !MI32.mode.triggeredTele || MI32.option.allwaysAggregate){
-            if (!isnan(MIBLEsensors[i].hum) && !isnan(MIBLEsensors[i].temp)) {
+            if (!isnan(MIBLEsensors[i].hum) && !isnan(MIBLEsensors[i].temp)
+#ifdef USE_HOME_ASSISTANT
+              ||(hass_mode==2)
+#endif //USE_HOME_ASSISTANT
+            ) {
               ResponseAppend_P(PSTR(","));
               ResponseAppendTHD(MIBLEsensors[i].temp, MIBLEsensors[i].hum);
               tempHumSended = true;
@@ -1604,7 +1660,11 @@ void MI32Show(bool json)
         }
         if(MIBLEsensors[i].feature.temp && !tempHumSended){
           if(MIBLEsensors[i].eventType.temp || !MI32.mode.triggeredTele || MI32.option.allwaysAggregate) {
-            if (!isnan(MIBLEsensors[i].temp)) {
+            if (!isnan(MIBLEsensors[i].temp)
+#ifdef USE_HOME_ASSISTANT
+              ||(hass_mode==2)
+#endif //USE_HOME_ASSISTANT
+            ) {
               char temperature[FLOATSZ];
               dtostrfd(MIBLEsensors[i].temp, Settings.flag2.temperature_resolution, temperature);
               ResponseAppend_P(PSTR(",\"" D_JSON_TEMPERATURE "\":%s"), temperature);
@@ -1613,7 +1673,11 @@ void MI32Show(bool json)
         }
         if(MIBLEsensors[i].feature.hum && !tempHumSended){
           if(MIBLEsensors[i].eventType.hum || !MI32.mode.triggeredTele || MI32.option.allwaysAggregate) {
-            if (!isnan(MIBLEsensors[i].hum)) {
+            if (!isnan(MIBLEsensors[i].hum)
+#ifdef USE_HOME_ASSISTANT
+              ||(hass_mode==2)
+#endif //USE_HOME_ASSISTANT
+            ) {
               char hum[FLOATSZ];
               dtostrfd(MIBLEsensors[i].hum, Settings.flag2.humidity_resolution, hum);
               ResponseAppend_P(PSTR(",\"" D_JSON_HUMIDITY "\":%s"), hum);
@@ -1622,27 +1686,43 @@ void MI32Show(bool json)
         }
         if (MIBLEsensors[i].feature.lux){
           if(MIBLEsensors[i].eventType.lux || !MI32.mode.triggeredTele || MI32.option.allwaysAggregate){
-            if (MIBLEsensors[i].lux!=0x0ffffff) { // this is the error code -> no lux
+            if (MIBLEsensors[i].lux!=0x0ffffff
+#ifdef USE_HOME_ASSISTANT
+              ||(hass_mode==2)
+#endif //USE_HOME_ASSISTANT
+            ) { // this is the error code -> no lux
               ResponseAppend_P(PSTR(",\"" D_JSON_ILLUMINANCE "\":%u"), MIBLEsensors[i].lux);
             }
           }
         }
         if (MIBLEsensors[i].feature.moist){
           if(MIBLEsensors[i].eventType.moist || !MI32.mode.triggeredTele || MI32.option.allwaysAggregate){
-            if (MIBLEsensors[i].moisture!=0xff) {
+            if (MIBLEsensors[i].moisture!=0xff
+#ifdef USE_HOME_ASSISTANT
+              ||(hass_mode==2)
+#endif //USE_HOME_ASSISTANT
+            ) {
               ResponseAppend_P(PSTR(",\"" D_JSON_MOISTURE "\":%u"), MIBLEsensors[i].moisture);
             }
           }
         }
         if (MIBLEsensors[i].feature.fert){
           if(MIBLEsensors[i].eventType.fert || !MI32.mode.triggeredTele || MI32.option.allwaysAggregate){
-            if (MIBLEsensors[i].fertility!=0xffff) {
+            if (MIBLEsensors[i].fertility!=0xffff
+#ifdef USE_HOME_ASSISTANT
+              ||(hass_mode==2)
+#endif //USE_HOME_ASSISTANT
+            ) {
               ResponseAppend_P(PSTR(",\"Fertility\":%u"), MIBLEsensors[i].fertility);
             }
           }
         }
         if (MIBLEsensors[i].feature.Btn){
-          if(MIBLEsensors[i].eventType.Btn){
+          if(MIBLEsensors[i].eventType.Btn
+#ifdef USE_HOME_ASSISTANT
+              ||(hass_mode==2)
+#endif //USE_HOME_ASSISTANT
+          ){
             ResponseAppend_P(PSTR(",\"Btn\":%u"),MIBLEsensors[i].Btn);
           }
         }
@@ -1670,7 +1750,11 @@ void MI32Show(bool json)
       }
       if (MIBLEsensors[i].feature.bat){
         if(MIBLEsensors[i].eventType.bat || !MI32.mode.triggeredTele || MI32.option.allwaysAggregate){
-          if (MIBLEsensors[i].bat != 0x00) { // this is the error code -> no battery
+          if (MIBLEsensors[i].bat != 0x00
+#ifdef USE_HOME_ASSISTANT
+              ||(hass_mode==2)
+#endif //USE_HOME_ASSISTANT
+          ) { // this is the error code -> no battery
           ResponseAppend_P(PSTR(",\"Battery\":%u"), MIBLEsensors[i].bat);
           }
         }
@@ -1684,11 +1768,16 @@ void MI32Show(bool json)
       MIBLEsensors[i].eventType.raw = 0;
       if(MIBLEsensors[i].shallSendMQTT==1){
         MIBLEsensors[i].shallSendMQTT = 0;
-        break;
+        continue;
       }
     }
     MI32.mode.triggeredTele = 0;
-    // ResponseAppend_P(PSTR("}"));
+#ifdef USE_HOME_ASSISTANT
+    if(hass_mode==2){
+      MI32.option.noSummary = _noSummarySave;
+      MI32.option.minimalSummary = _minimalSummarySave;
+    }
+#endif //USE_HOME_ASSISTANT
 #ifdef USE_WEBSERVER
     } else {
       static  uint16_t _page = 0;
@@ -1707,7 +1796,9 @@ void MI32Show(bool json)
       WSContentSend_PD(HTTP_MI32, i+1,stemp,MIBLEsensors.size());
       for (i; i<j; i++) {
         WSContentSend_PD(HTTP_MI32_HL);
-        WSContentSend_PD(HTTP_MI32_SERIAL, kMI32DeviceType[MIBLEsensors[i].type-1], D_MAC_ADDRESS, MIBLEsensors[i].MAC[0], MIBLEsensors[i].MAC[1],MIBLEsensors[i].MAC[2],MIBLEsensors[i].MAC[3],MIBLEsensors[i].MAC[4],MIBLEsensors[i].MAC[5]);
+        char _MAC[18];
+        ToHex_P(MIBLEsensors[i].MAC,6,_MAC,18,':');
+        WSContentSend_PD(HTTP_MI32_MAC, kMI32DeviceType[MIBLEsensors[i].type-1], D_MAC_ADDRESS, _MAC);
         WSContentSend_PD(HTTP_RSSI, kMI32DeviceType[MIBLEsensors[i].type-1], MIBLEsensors[i].rssi);
         if (MIBLEsensors[i].type==FLORA) {
           if (!isnan(MIBLEsensors[i].temp)) {
