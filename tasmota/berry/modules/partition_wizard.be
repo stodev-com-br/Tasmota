@@ -17,7 +17,7 @@ var partition_wizard = module('partition_wizard')
 class Partition_wizard_UI
   static app_size_min = 832    # Min OTA size - let's set it at a safe 896KB for minimal Tasmota32 with TLS
   static app_size_max = 3072   # Max OTA size - (4096 - 896 - 128)
-  static _default_safeboot_URL = "https://raw.githubusercontent.com/arendst/Tasmota-firmware/main/firmware/tasmota32/tasmota32%s-safeboot.bin"
+  static _default_safeboot_URL = "http://ota.tasmota.com/tasmota32/release/tasmota32%s-safeboot.bin"
 
   def init()
     import persist
@@ -480,7 +480,7 @@ class Partition_wizard_UI
     webserver.content_send("<fieldset><legend><b>&nbsp;Migrate to safeboot partition layout&nbsp;</b></legend><p></p>")
 
     webserver.content_send("<p>The `safeboot` layout allows for increased size<br>of firmware or file-system.</p>")
-    webserver.content_send("<p>Please see <a href=''>Safeboot layout documentation</a></p>")
+    webserver.content_send("<p>Please see <a href='https://tasmota.github.io/docs/Safeboot/' target='_blank'>Safeboot layout documentation</a></p>")
     webserver.content_send("<p>&nbsp;</p>")
 
     webserver.content_send(string.format("<p>Step 1: %s</p>", self.display_step_state(self.test_step_1(p), "boot on `app1`")))
@@ -558,7 +558,7 @@ class Partition_wizard_UI
 
     # display if layout is factory
     if self.has_factory_layout(p)
-      webserver.content_send("<p>This device uses the <b>safeboot</b> layout</p>")
+      webserver.content_send("<p>This device uses the <a href='https://tasmota.github.io/docs/Safeboot/' target='_blank'>Safeboot</a> layout</p>")
     end
 
     webserver.content_send("</fieldset><p></p>")
