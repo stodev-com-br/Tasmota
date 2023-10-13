@@ -69,18 +69,19 @@ void lv_draw_img(lv_draw_ctx_t * draw_ctx, const lv_draw_img_dsc_t * dsc, const 
 
     if(dsc->opa <= LV_OPA_MIN) return;
 
-    lv_res_t res;
+    lv_res_t res = LV_RES_INV;
+
     if(draw_ctx->draw_img) {
         res = draw_ctx->draw_img(draw_ctx, dsc, coords, src);
     }
-    else {
+
+    if(res != LV_RES_OK) {
         res = decode_and_draw(draw_ctx, dsc, coords, src);
     }
 
-    if(res == LV_RES_INV) {
+    if(res != LV_RES_OK) {
         LV_LOG_WARN("Image draw error");
         show_error(draw_ctx, coords, "No\ndata");
-        return;
     }
 }
 
@@ -197,11 +198,19 @@ lv_img_src_t lv_img_src_get_type(const void * src)
     if(src == NULL) return img_src_type;
     const uint8_t * u8_p = src;
 
-    /*The first byte shows the type of the image source*/
+    /*The first or fourth byte depending on platform endianess shows the type of the image source*/
+#if LV_BIG_ENDIAN_SYSTEM
+    if(u8_p[3] >= 0x20 && u8_p[3] <= 0x7F) {
+#else
     if(u8_p[0] >= 0x20 && u8_p[0] <= 0x7F) {
+#endif
         img_src_type = LV_IMG_SRC_FILE; /*If it's an ASCII character then it's file name*/
     }
+#if LV_BIG_ENDIAN_SYSTEM
+    else if(u8_p[3] >= 0x80) {
+#else
     else if(u8_p[0] >= 0x80) {
+#endif
         img_src_type = LV_IMG_SRC_SYMBOL; /*Symbols begins after 0x7F*/
     }
     else {

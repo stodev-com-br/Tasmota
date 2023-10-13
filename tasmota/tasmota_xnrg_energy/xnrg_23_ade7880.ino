@@ -444,13 +444,17 @@ bool Ade7880SetCalibrate(void) {
     uint32_t start = millis();
 #endif  // ADE7880_PROFILING
 
-  int reset = Pin(GPIO_RESET);
-  if (-1 == reset) { reset = 16; }                                         // Reset pin ADE7880 in Shelly 3EM
-  pinMode(reset, OUTPUT);
-  digitalWrite(reset, 0);
-  delay(1);
-  digitalWrite(reset, 1);
-  pinMode(reset, INPUT);
+  int pin_reset = Pin(GPIO_RESET);
+#ifdef ESP8266
+  if (-1 == pin_reset) { pin_reset = 16; }                                 // Reset pin ADE7880 in Shelly 3EM
+#endif
+  if (pin_reset >= 0) {
+    pinMode(pin_reset, OUTPUT);
+    digitalWrite(pin_reset, 0);
+    delay(1);
+    digitalWrite(pin_reset, 1);
+    pinMode(pin_reset, INPUT);
+  }
 
   Ade7880.cycle_count = 2;                                                 // Skip first two cycles
 
@@ -501,16 +505,16 @@ void Ade7880Cycle(void) {
   }
   Ade7880.neutral_current = (float)Ade7880ReadVerify(ADE7880_NIRMS) / 100000;                // 0x43C6
   for (uint32_t phase = 0; phase < 3; phase++) {
-    Energy.data_valid[phase] = 0;
-    Energy.voltage[phase] = (float)Ade7880ReadVerify(ADE7880_AVRMS + (phase * 2)) / 10000;   // 0x43C1 - 0x0024CC94 = 241.1668 V
-    Energy.current[phase] = (float)Ade7880ReadVerify(ADE7880_AIRMS + (phase * 2)) / 100000;  // 0x43C0 - 0x00002D6D = 0.11629 A
-    Energy.active_power[phase] = (float)Ade7880ReadVerify(ADE7880_AWATT + phase) / 100;      // 0xE513 - 0xFFFFF524 = -27.79 W
-    Energy.apparent_power[phase] = (float)Ade7880ReadVerify(ADE7880_AVA + phase) / 100;      // 0xE519 - 0xFFFFF50D
-    Energy.frequency[phase] = 256000.0f / Ade7880ReadVerify(ADE7880_APERIOD + phase);        // 0xE905 - Page 34 and based on ADE7880_FREQ_INIT
+    Energy->data_valid[phase] = 0;
+    Energy->voltage[phase] = (float)Ade7880ReadVerify(ADE7880_AVRMS + (phase * 2)) / 10000;   // 0x43C1 - 0x0024CC94 = 241.1668 V
+    Energy->current[phase] = (float)Ade7880ReadVerify(ADE7880_AIRMS + (phase * 2)) / 100000;  // 0x43C0 - 0x00002D6D = 0.11629 A
+    Energy->active_power[phase] = (float)Ade7880ReadVerify(ADE7880_AWATT + phase) / 100;      // 0xE513 - 0xFFFFF524 = -27.79 W
+    Energy->apparent_power[phase] = (float)Ade7880ReadVerify(ADE7880_AVA + phase) / 100;      // 0xE519 - 0xFFFFF50D
+    Energy->frequency[phase] = 256000.0f / Ade7880ReadVerify(ADE7880_APERIOD + phase);        // 0xE905 - Page 34 and based on ADE7880_FREQ_INIT
     // Suppose constant load during period of 100/120 periods as set by ADE7880_LINECYC disregards load change inbetween.
     // ADE7880_AWATT = 6713 = 67,13 W
     // 67,13 * 1000 / 36 = 1864 deca micro Wh (0.01864Wh)
-//    Energy.kWhtoday_delta[phase] += Energy.active_power[phase] * 1000 / 36;
+//    Energy->kWhtoday_delta[phase] += Energy->active_power[phase] * 1000 / 36;
 
     // By measuring load 1024000 times/second load change in 100/120 periods can be accounted for.
     // ADE7880_AWATT = 6713 = 67,13 W
@@ -525,7 +529,7 @@ void Ade7880Cycle(void) {
     // 273 * 402653184 / 16384 = 6709248 = 67092,48W / 3600 = 1863 deca micro Wh
     // 273 * 24576 = 6709248 / 3600 = 1863 deca micro Wh
     int32_t active_energy = Ade7880ReadVerify(ADE7880_AWATTHR + phase);    // 0xE400 - 0xFFFFFF8F = -0.112
-    Energy.kWhtoday_delta[phase] += active_energy * 24576 / 3600;          // Using int32_t allows loads up to 87kW (0x7FFFFFFF / 24576)
+    Energy->kWhtoday_delta[phase] += active_energy * 24576 / 3600;          // Using int32_t allows loads up to 87kW (0x7FFFFFFF / 24576)
   }
   EnergyUpdateToday();
 
@@ -536,7 +540,6 @@ void Ade7880Cycle(void) {
 
 void Ade7880Service0(void) {
   // Poll sequence
-  SkipSleep(false);
   Ade7880Cycle();
   Ade7880.watchdog = 0;
   Ade7880.irq0_state = 0;
@@ -546,7 +549,6 @@ void IRAM_ATTR Ade7880Isr0(void) {
   // Poll sequence
   if (!Ade7880.irq0_state) {
     Ade7880.irq0_state = 1;
-    SkipSleep(true);
   }
 }
 
@@ -570,7 +572,10 @@ bool Ade7880SetDefaults(const char* json) {
   memcpy(json_buffer, json, len);         // Keep original safe
   JsonParser parser(json_buffer);
   JsonParserObject root = parser.getRootObject();
-  if (!root) { return false; }
+  if (!root) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("A78: Invalid JSON"));
+    return false;
+  }
 
   // All parameters are optional allowing for partial changes
   JsonParserToken val = root[PSTR("freq")];
@@ -632,14 +637,20 @@ void Ade7880Defaults(void) {
   Ade7880.calib_angle[1] = ADE7880_BPHCAL_INIT;
   Ade7880.calib_angle[2] = ADE7880_CPHCAL_INIT;
 
+  String calib = "";
+#ifdef USE_UFILESYS
+  calib = TfsLoadString("/calib.dat");
+#endif  // USE_UFILESYS
 #ifdef USE_RULES
   // rule3 on file#calib.dat do {"rms":{"current_a":3166385,"current_b":3125691,"current_c":3131983,"current_s":1756557,"voltage_a":-767262,"voltage_b":-763439,"voltage_c":-749854},"angles":{"angle0":180,"angle1":176,"angle2":176},"powers":{"totactive": {"a":-1345820,"b":-1347328,"c":-1351979}},"freq":0} endon
-  String calib = RuleLoadFile("CALIB.DAT");
+  if (!calib.length()) {
+    calib = RuleLoadFile("CALIB.DAT");
+  }
+#endif  // USE_RULES
   if (calib.length()) {
 //    AddLog(LOG_LEVEL_DEBUG, PSTR("A78: File '%s'"), calib.c_str());
     Ade7880SetDefaults(calib.c_str());
   }
-#endif  // USE_RULES
 }
 
 void Ade7880DrvInit(void) {
@@ -655,10 +666,10 @@ void Ade7880DrvInit(void) {
       Ade7880Defaults();
 
       if (Ade7880SetCalibrate()) {
-        Energy.phase_count = 3;                                            // Three phases
+        Energy->phase_count = 3;                                            // Three phases
 //        Settings->flag5.energy_phase = 1;                                  // SetOption129 - (Energy) Show phase information
-//        Energy.use_overtemp = true;                                        // Use global temperature for overtemp detection
-        Energy.local_energy_active_export = true;
+//        Energy->use_overtemp = true;                                        // Use global temperature for overtemp detection
+        Energy->local_energy_active_export = true;
         TasmotaGlobal.energy_driver = XNRG_23;
       }
     }
@@ -668,7 +679,7 @@ void Ade7880DrvInit(void) {
 bool Ade7880Command(void) {
   bool serviced = false;
 
-  if (CMND_ENERGYCONFIG == Energy.command_code) {
+  if (CMND_ENERGYCONFIG == Energy->command_code) {
     // Non-pesistent settings
     // EnergyConfig {"rms":{"current_a":3166385,"current_b":3125691,"current_c":3131983,"current_s":1756557,"voltage_a":-767262,"voltage_b":-763439,"voltage_c":-749854},"angles":{"angle0":180,"angle1":176,"angle2":176},"powers":{"totactive": {"a":-1345820,"b":-1347328,"c":-1351979}},"freq":0}
     // EnergyConfig {"rms":{"voltage_c":-549854}}
@@ -730,19 +741,12 @@ bool Ade7880Command(void) {
 \*********************************************************************************************/
 
 #ifdef ADE7880_MORE_REGS
-#ifdef USE_WEBSERVER
-const char HTTP_ADE7880_CURRENT[] PROGMEM = "{s}" D_CURRENT_NEUTRAL "{m}%s " D_UNIT_AMPERE "{e}";
-#endif  // USE_WEBSERVER
-
 void Ade7880Show(bool json) {
-  char value_chr[TOPSZ];
-
   if (json) {
-    ResponseAppend_P(PSTR(",\"" D_JSON_CURRENT_NEUTRAL "\":%s"),
-      EnergyFormat(value_chr, &Ade7880.neutral_current, Settings->flag2.current_resolution, 1));
+    ResponseAppend_P(PSTR(",\"" D_JSON_CURRENT_NEUTRAL "\":%s"), EnergyFmt(&Ade7880.neutral_current, Settings->flag2.current_resolution, 1));
 #ifdef USE_WEBSERVER
   } else {
-    WSContentSend_PD(HTTP_ADE7880_CURRENT, WebEnergyFormat(value_chr, &Ade7880.neutral_current, Settings->flag2.current_resolution, 1));
+    WSContentSend_PD(HTTP_SNS_CURRENT_N, WebEnergyFmt(&Ade7880.neutral_current, Settings->flag2.current_resolution, 1));
 #endif  // USE_WEBSERVER
   }
 }
@@ -752,7 +756,7 @@ void Ade7880Show(bool json) {
  * Interface
 \*********************************************************************************************/
 
-bool Xnrg23(uint8_t function) {
+bool Xnrg23(uint32_t function) {
   if (!I2cEnabled(XI2C_65)) { return false; }
 
   bool result = false;
@@ -769,11 +773,7 @@ bool Xnrg23(uint8_t function) {
       Ade7880Show(1);
       break;
 #ifdef USE_WEBSERVER
-#ifdef USE_ENERGY_COLUMN_GUI
     case FUNC_WEB_COL_SENSOR:
-#else   // not USE_ENERGY_COLUMN_GUI
-    case FUNC_WEB_SENSOR:
-#endif  // USE_ENERGY_COLUMN_GUI
       Ade7880Show(0);
       break;
 #endif  // USE_WEBSERVER

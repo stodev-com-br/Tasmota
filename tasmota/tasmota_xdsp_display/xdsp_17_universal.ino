@@ -33,6 +33,12 @@ uint8_t ctouch_counter;
 extern FS *ffsp;
 #endif
 
+#undef GT911_address
+#define GT911_address 0x5D
+
+enum {GPIO_DP_RES=GPIO_SENSOR_END-1,GPIO_DP_CS,GPIO_DP_RS,GPIO_DP_WR,GPIO_DP_RD,GPIO_DPAR0,GPIO_DPAR1,GPIO_DPAR2,GPIO_DPAR3,GPIO_DPAR4,GPIO_DPAR5,GPIO_DPAR6,GPIO_DPAR7,GPIO_DPAR8,GPIO_DPAR9,GPIO_DPAR10,GPIO_DPAR11,GPIO_DPAR12,GPIO_DPAR13,GPIO_DPAR14,GPIO_DPAR15};
+
+
 #ifndef USE_DISPLAY
 uint8_t color_type;
 uint16_t fg_color;
@@ -44,8 +50,9 @@ extern uint16_t fg_color;
 extern uint16_t bg_color;
 #endif
 
+#ifndef DISPDESC_SIZE
 #define DISPDESC_SIZE 1000
-
+#endif
 
 void Core2DisplayPower(uint8_t on);
 void Core2DisplayDim(uint8_t dim);
@@ -89,6 +96,11 @@ int8_t cs;
       fp = ffsp->open(DISP_DESC_FILE, "r");
       if (fp > 0) {
         uint32_t size = fp.size();
+        if (size > DISPDESC_SIZE - 50) {
+          free(fbuff);
+          fbuff = (char*)calloc(size + 50, 1);
+          if (!fbuff) return 0;
+        }
         fp.read((uint8_t*)fbuff, size);
         fp.close();
         ddesc = fbuff;
@@ -143,6 +155,7 @@ int8_t cs;
       if (fbuff) free(fbuff);
       return 0;
     }
+
     // now replace tasmota vars before passing to driver
     char *cp = strstr(ddesc, "I2C");
     if (cp) {
@@ -162,11 +175,15 @@ int8_t cs;
       replacepin(&cp, Pin(GPIO_OLED_RESET));
 
       if (wire_n == 1) {
-        I2cBegin(sda, scl);
+        if (!TasmotaGlobal.i2c_enabled) {
+          I2cBegin(sda, scl);
+        }
       }
 #ifdef ESP32
       if (wire_n == 2) {
-        I2c2Begin(sda, scl);
+        if (!TasmotaGlobal.i2c_enabled_2) {
+          I2c2Begin(sda, scl);
+        }
       }
       if (I2cSetDevice(i2caddr, wire_n - 1)) {
         I2cSetActiveFound(i2caddr, "DSP-I2C", wire_n - 1);
@@ -228,6 +245,57 @@ int8_t cs;
       }
     }
 
+    uint16_t xs, ys;
+    // we need screen size for gt911 touch controler
+    cp = strstr(ddesc, ":H,");
+    if (cp) {
+      cp += 3;
+      cp = strchr(cp, ',');
+      cp++;
+      xs = strtol(cp, &cp, 10);
+      cp++;
+      ys = strtol(cp, &cp, 10);
+    }
+
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+    int8_t xp, xm, yp, ym;
+
+    cp = strstr(ddesc, "PAR,");
+    if (cp) {
+      cp += 4;
+      // 8 or 16 bus
+      uint8_t mode = strtol(cp, &cp, 10);
+      cp++;
+
+      replacepin(&cp, Pin(GPIO_DP_RES));
+      xm = replacepin(&cp, Pin(GPIO_DP_CS));
+      yp = replacepin(&cp, Pin(GPIO_DP_RS));
+      replacepin(&cp, Pin(GPIO_DP_WR));
+      replacepin(&cp, Pin(GPIO_DP_RD));
+      replacepin(&cp, Pin(GPIO_BACKLIGHT));
+
+      ym = replacepin(&cp, Pin(GPIO_DPAR0));
+      xp = replacepin(&cp, Pin(GPIO_DPAR1));
+
+      replacepin(&cp, Pin(GPIO_DPAR2));
+      replacepin(&cp, Pin(GPIO_DPAR3));
+      replacepin(&cp, Pin(GPIO_DPAR4));
+      replacepin(&cp, Pin(GPIO_DPAR5));
+      replacepin(&cp, Pin(GPIO_DPAR6));
+      replacepin(&cp, Pin(GPIO_DPAR7));
+
+      if (mode == 16) {
+        replacepin(&cp, Pin(GPIO_DPAR8));
+        replacepin(&cp, Pin(GPIO_DPAR9));
+        replacepin(&cp, Pin(GPIO_DPAR10));
+        replacepin(&cp, Pin(GPIO_DPAR11));
+        replacepin(&cp, Pin(GPIO_DPAR12));
+        replacepin(&cp, Pin(GPIO_DPAR13));
+        replacepin(&cp, Pin(GPIO_DPAR14));
+        replacepin(&cp, Pin(GPIO_DPAR15));
+      }
+    }
+#endif // CONFIG_IDF_TARGET_ESP32S3
 /*
     File fp;
     fp = ffsp->open("/dump.txt", "w");
@@ -240,10 +308,11 @@ int8_t cs;
       delete renderer;
       AddLog(LOG_LEVEL_DEBUG, PSTR("DSP: reinit"));
     }
+
     udisp  = new uDisplay(ddesc);
 
     // checck for touch option TI1 or TI2
-#ifdef USE_FT5206
+#if defined(USE_FT5206) || defined(USE_GT911)
     cp = strstr(ddesc, ":TI");
     if (cp) {
       uint8_t wire_n = 1;
@@ -252,46 +321,110 @@ int8_t cs;
       cp += 2;
 
       uint8_t i2caddr = strtol(cp, &cp, 16);
-      int8_t scl, sda;
+      int8_t scl, sda, irq = -1, rst = -1;
       scl = replacepin(&cp, Pin(GPIO_I2C_SCL, wire_n));
       sda = replacepin(&cp, Pin(GPIO_I2C_SDA, wire_n));
+      if (*(cp - 1) == ',') {
+        irq = strtol(cp, &cp, 10);
+      } else {
+        irq = -1;
+      }
+      if (*cp == ',') {
+        cp++;
+        rst = strtol(cp, &cp, 10);
+      } else {
+        rst = -1;
+      }
+
       if (wire_n == 0) {
-        I2cBegin(sda, scl);
+        if (!TasmotaGlobal.i2c_enabled) {
+          I2cBegin(sda, scl);
+        }
       }
 #ifdef ESP32
       if (wire_n == 1) {
-        I2c2Begin(sda, scl, 400000);
+        if (!TasmotaGlobal.i2c_enabled_2) {
+          I2c2Begin(sda, scl, 400000);
+        }
       }
       if (I2cSetDevice(i2caddr, wire_n)) {
-        I2cSetActiveFound(i2caddr, "FT5206", wire_n);
+        if (i2caddr == GT911_address) {
+          I2cSetActiveFound(i2caddr, "GT911", wire_n);
+        } else {
+          I2cSetActiveFound(i2caddr, "FT5206", wire_n);
+        }
       }
 #endif // ESP32
 
 #ifdef ESP8266
       //AddLog(LOG_LEVEL_INFO, PSTR("DSP: touch %x, %d, %d, %d!"), i2caddr, wire_n, scl, sda);
       if (I2cSetDevice(i2caddr)) {
-        I2cSetActiveFound(i2caddr, "FT5206");
+        if (i2caddr == GT911_address) {
+          I2cSetActiveFound(i2caddr, "GT911");
+        } else {
+          I2cSetActiveFound(i2caddr, "FT5206");
+        }
       }
 #endif // ESP8266
 
       // start digitizer
 #ifdef ESP32
-      if (!wire_n) FT5206_Touch_Init(Wire);
-      else FT5206_Touch_Init(Wire1);
+      if (i2caddr == GT911_address) {
+#ifdef USE_GT911
+        if (!wire_n) GT911_Touch_Init(&Wire, irq, rst, xs, ys);
+        else GT911_Touch_Init(&Wire1, irq, rst, xs, ys);
+#endif
+      } else {
+#ifdef USE_FT5206
+        if (!wire_n) FT5206_Touch_Init(Wire);
+        else FT5206_Touch_Init(Wire1);
+#endif
+      }
+
 #else
+
+      if (i2caddr == GT911_address) {
+#ifdef USE_GT911
+      if (!wire_n) GT911_Touch_Init(&Wire, irq, rst, xs, ys);
+#endif
+      } else {
+#ifdef USE_FT5206
       if (!wire_n) FT5206_Touch_Init(Wire);
+#endif
+      }
 #endif // ESP32
+
     }
-#endif // USE_FT5206
+#endif // USE_FT5206 || GT911
 
 #ifdef USE_XPT2046
     cp = strstr(ddesc, ":TS,");
     if (cp) {
-      cp+=4;
+      cp += 4;
       uint8_t touch_cs = replacepin(&cp, Pin(GPIO_XPT2046_CS));
-	    XPT2046_Touch_Init(touch_cs);
+      int8_t irqpin = -1;
+      if (*(cp - 1) == ',') {
+        irqpin = strtol(cp, &cp, 10);
+      }
+      uint8_t bus = 1;
+      if (*cp == ',') {
+        cp++;
+        bus = strtol(cp, &cp, 10);
+        if (bus < 1) bus = 1;
+      }
+	    XPT2046_Touch_Init(touch_cs, irqpin, bus - 1);
     }
 #endif // USE_XPT2046
+
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+#ifdef SIMPLE_RES_TOUCH
+    cp = strstr(ddesc, ":TR,");
+    if (cp) {
+      cp += 4;
+      Simple_ResTouch_Init(xp, xm, yp, ym);
+    }
+#endif
+#endif
 
     uint8_t inirot = Settings->display_rotate;
 
@@ -430,7 +563,7 @@ void UDISP_Refresh(void)  // Every second
  * Interface
 \*********************************************************************************************/
 
-bool Xdsp17(uint8_t function) {
+bool Xdsp17(uint32_t function) {
   bool result = false;
 
   if (FUNC_DISPLAY_INIT_DRIVER == function) {

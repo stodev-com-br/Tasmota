@@ -16,6 +16,7 @@
 #ifdef ESP32
 
 #include "Arduino.h"
+#include "esp_idf_version.h"
 #include "esp8266toEsp32.h"
 #include "driver/ledc.h"
 
@@ -33,7 +34,11 @@ enum LoggingLevels {LOG_LEVEL_NONE, LOG_LEVEL_ERROR, LOG_LEVEL_INFO, LOG_LEVEL_D
 #else
 #define LEDC_DEFAULT_CLK        LEDC_AUTO_CLK
 #endif
-#define LEDC_MAX_BIT_WIDTH      SOC_LEDC_TIMER_BIT_WIDE_NUM
+#if (ESP_IDF_VERSION_MAJOR >= 5)
+  #define LEDC_MAX_BIT_WIDTH      SOC_LEDC_TIMER_BIT_WIDTH
+#else
+  #define LEDC_MAX_BIT_WIDTH      SOC_LEDC_TIMER_BIT_WIDE_NUM
+#endif
 
 // define our limits to ease any change from esp-idf
 #define MAX_TIMERS              LEDC_TIMER_MAX            // 4 timers for all ESP32 variants
@@ -207,7 +212,7 @@ void analogWriteFreqRange(int32_t freq, int32_t range, int32_t pin) {
   _analogInit();      // make sure the mapping array is initialized
   uint32_t timer0_freq = timer_freq_hz[0];          // global values
   uint8_t  timer0_res = timer_duty_resolution[0];
-  
+
   int32_t timer = 0;
   int32_t res = timer0_res;
   if (pin < 0) {
@@ -233,7 +238,7 @@ void analogWriteFreqRange(int32_t freq, int32_t range, int32_t pin) {
       if (timer != 0) {
         ledcSetTimer(chan, 0);
         timer = 0;
-      } 
+      }
       // else nothing to change
     } else {
       // specific (non-global) values, require a specific timer
@@ -293,7 +298,7 @@ int32_t analogAttach(uint32_t pin, bool output_invert) {    // returns ledc chan
     AddLog(LOG_LEVEL_INFO, "PWM: no more PWM (ledc) channel for GPIO %i", pin);
     return -1;
   }
-  
+
   // new channel attached to pin
   pin_to_channel[pin] = chan + 1;
 

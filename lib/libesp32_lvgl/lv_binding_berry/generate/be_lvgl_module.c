@@ -8,14 +8,18 @@
 
 #include "lvgl.h"
 #include "be_mapping.h"
+#include "be_ctypes.h"
 #include "lv_berry.h"
 #include "lv_theme_haspmota.h"
+
+// declare accessors for non-const ints
+int32_t be_LV_LAYOUT_GRID(void) { return LV_LAYOUT_GRID; };              BE_VAR_CTYPE_DECLARE(be_LV_LAYOUT_GRID, "i");
+int32_t be_LV_LAYOUT_FLEX(void) { return LV_LAYOUT_FLEX; };              BE_VAR_CTYPE_DECLARE(be_LV_LAYOUT_FLEX, "i");
 
 extern int lv0_member(bvm *vm);     // resolve virtual members
 extern int lv0_load_font(bvm *vm);
 
 extern lv_ts_calibration_t * lv_get_ts_calibration(void);
-
 
 static int lv_get_hor_res(void) {
   return lv_disp_get_hor_res(lv_disp_get_default());
@@ -297,6 +301,7 @@ const be_const_member_t lv0_constants[] = {
     { "COLOR_MAROON", be_cconst_int(0x800000) },
     { "COLOR_NAVY", be_cconst_int(0x000080) },
     { "COLOR_OLIVE", be_cconst_int(0x808000) },
+    { "COLOR_ORANGE", be_cconst_int(0xFF7F00) },
     { "COLOR_PURPLE", be_cconst_int(0x800080) },
     { "COLOR_RED", be_cconst_int(0xFF0000) },
     { "COLOR_SILVER", be_cconst_int(0xC0C0C0) },
@@ -501,6 +506,8 @@ const be_const_member_t lv0_constants[] = {
     { "LAYER_TYPE_NONE", be_cconst_int(LV_LAYER_TYPE_NONE) },
     { "LAYER_TYPE_SIMPLE", be_cconst_int(LV_LAYER_TYPE_SIMPLE) },
     { "LAYER_TYPE_TRANSFORM", be_cconst_int(LV_LAYER_TYPE_TRANSFORM) },
+    { ">LAYOUT_FLEX", be_ctype(be_LV_LAYOUT_FLEX) },
+    { ">LAYOUT_GRID", be_ctype(be_LV_LAYOUT_GRID) },
     { "LED_DRAW_PART_RECTANGLE", be_cconst_int(LV_LED_DRAW_PART_RECTANGLE) },
     { "LOG_LEVEL_ERROR", be_cconst_int(LV_LOG_LEVEL_ERROR) },
     { "LOG_LEVEL_INFO", be_cconst_int(LV_LOG_LEVEL_INFO) },
@@ -845,42 +852,11 @@ const be_const_member_t lv0_constants[] = {
 
 const size_t lv0_constants_size = sizeof(lv0_constants)/sizeof(lv0_constants[0]);
 
-/********************************************************************
-** Solidified function: lv_module_init
-********************************************************************/
-be_local_closure(lv_lv_module_init,   /* name */
-  be_nested_proto(
-    3,                          /* nstack */
-    1,                          /* argc */
-    0,                          /* varg */
-    0,                          /* has upvals */
-    NULL,                       /* no upvals */
-    0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
-    1,                          /* has constants */
-    ( &(const bvalue[ 3]) {     /* constants */
-    /* K0   */  be_nested_str(lv),
-    /* K1   */  be_nested_str(member),
-    /* K2   */  be_nested_str(lv_solidified),
-    }),
-    &be_const_str_lv_module_init,
-    &be_const_str_solidified,
-    ( &(const binstruction[ 7]) {  /* code */
-      0x6004000B,  //  0000  GETGBL	R1	G11
-      0x58080000,  //  0001  LDCONST	R2	K0
-      0x7C040200,  //  0002  CALL	R1	1
-      0x88080101,  //  0003  GETMBR	R2	R0	K1
-      0x90060202,  //  0004  SETMBR	R1	K1	R2
-      0x90060400,  //  0005  SETMBR	R1	K2	R0
-      0x80040200,  //  0006  RET	1	R1
-    })
-  )
-);
-/*******************************************************************/
+#include "../src/solidify/solidified_lv.h"
 
 /* @const_object_info_begin
 module lv (scope: global, file: lv) {
-    init, closure(lv_lv_module_init_closure)
+    init, closure(lv_module_init_closure)
     member, func(lv0_member)
 }
 @const_object_info_end */

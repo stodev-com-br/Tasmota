@@ -1,4 +1,4 @@
-![Tasmota logo](/tools/logo/TASMOTA_FullLogo_Vector.svg)
+![Tasmota logo](/tools/logo/TASMOTA_FullLogo_Vector.svg#gh-light-mode-only)![Tasmota logo](/tools/logo/TASMOTA_FullLogo_Vector_White.svg#gh-dark-mode-only)
 
 Alternative firmware for [ESP8266](https://en.wikipedia.org/wiki/ESP8266) and [ESP32](https://en.wikipedia.org/wiki/ESP32) based devices with **easy configuration using webUI, OTA updates, automation using timers or rules, expandability and entirely local control over MQTT, HTTP, Serial or KNX**.
 _Written for PlatformIO._
@@ -31,7 +31,7 @@ Firmware binaries can be downloaded from http://ota.tasmota.com/tasmota/release/
 
 ## Development
 
-[![Dev Version](https://img.shields.io/badge/development%20version-v12.1.x.x-blue.svg)](https://github.com/arendst/Tasmota)
+[![Dev Version](https://img.shields.io/badge/development%20version-v13.1.x.x-blue.svg)](https://github.com/arendst/Tasmota)
 [![Download Dev](https://img.shields.io/badge/download-development-yellow.svg)](http://ota.tasmota.com/tasmota/)
 [![Tasmota CI](https://github.com/arendst/Tasmota/actions/workflows/build_all_the_things.yml/badge.svg)](https://github.com/arendst/Tasmota/actions/workflows/build_all_the_things.yml)
 [![Build_development](https://github.com/arendst/Tasmota/actions/workflows/Tasmota_build_devel.yml/badge.svg)](https://github.com/arendst/Tasmota/actions/workflows/Tasmota_build_devel.yml)
@@ -40,13 +40,13 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed change information.
 
 Unless your Tasmota powered device exhibits a problem or lacks a feature that you need, leave your device alone - it works so don’t make unnecessary changes! If the release version (i.e., the master branch) exhibits unexpected behaviour for your device and configuration, you should upgrade to the latest development version instead to see if your problem is resolved as some bugs in previous releases or development builds may already have been resolved.
 
-Every commit made to the development branch, which is compiling successfuly, will post new binary files at http://ota.tasmota.com/tasmota/ (this web address can be used for OTA updates too). It is important to note that these binaries are based on the current development codebase. These commits are tested as much as is possible and are typically quite stable. However, it is infeasible to test on the hundreds of different types of devices with all the available configuration options permitted.
+Every commit made to the development branch, which is compiling successfully, will post new binary files at http://ota.tasmota.com/tasmota/ (this web address can be used for OTA updates too). It is important to note that these binaries are based on the current development codebase. These commits are tested as much as is possible and are typically quite stable. However, it is infeasible to test on the hundreds of different types of devices with all the available configuration options permitted.
 
 Note that there is a chance, as with any upgrade, that the device may not function as expected. You must always account for the possibility that you may need to flash the device via the serial programming interface if the OTA upgrade fails. Even with the master release, you should always attempt to test the device or a similar prototype before upgrading a device which is in production or is hard to reach. And, as always, make a backup of the device configuration before beginning any firmware update.
 
 ## Disclaimer
 
-st:warning: **DANGER OF ELECTROCUTION** :warning:
+:warning: **DANGER OF ELECTROCUTION** :warning:
 
 If your device connects to mains electricity (AC power) there is danger of electrocution if not installed properly. If you don't know how to install it, please call an electrician (***Beware:*** certain countries prohibit installation without a licensed electrician present). Remember: _**SAFETY FIRST**_. It is not worth the risk to yourself, your family and your home if you don't know exactly what you are doing. Never tinker or try to flash a device using the serial programming interface while it is connected to MAINS ELECTRICITY (AC power).
 
@@ -129,6 +129,8 @@ You can contribute to Tasmota by
 ## Credits
 
 People helping to keep the show on the road:
+- Sfromis providing extensive user support
+- Barbudor providing user support and code fixes and additions
 - David Lang providing initial issue resolution and code optimizations
 - Heiko Krupp for his IRSend, HTU21, SI70xx and Wemo/Hue emulation drivers
 - Wiktor Schmidt for Travis CI implementation
@@ -154,7 +156,7 @@ People helping to keep the show on the road:
 - Joel Stein, digiblur and Shantur Rathore for their Tuya research and driver
 - Frogmore42 for providing many issue answers
 - Jason2866 for platformio support and providing many issue answers
-- Blakadder for managing the new document site and providing template management
+- Blakadder for managing the document site and providing template management
 - Stephan Hadinger for refactoring light driver, enhancing HueEmulation, LVGL, Zigbee and Berry support
 - tmo for designing the official Tasmota logo
 - Stefan Bode for his Shutter and Deep sleep drivers
@@ -168,4 +170,4 @@ People helping to keep the show on the road:
 
 ## License
 
-This program is licensed under GPL-3.0
+This program is licensed under GPL-3.0-only

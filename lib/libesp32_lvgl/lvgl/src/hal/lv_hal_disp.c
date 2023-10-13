@@ -23,9 +23,9 @@
 #include "../draw/stm32_dma2d/lv_gpu_stm32_dma2d.h"
 #include "../draw/swm341_dma2d/lv_gpu_swm341_dma2d.h"
 #include "../draw/arm2d/lv_gpu_arm2d.h"
-#if LV_USE_GPU_NXP_PXP || LV_USE_GPU_NXP_VG_LITE
-    #include "../draw/nxp/lv_gpu_nxp.h"
-#endif
+#include "../draw/nxp/vglite/lv_draw_vglite.h"
+#include "../draw/nxp/pxp/lv_draw_pxp.h"
+#include "../draw/renesas/lv_gpu_d2_ra6m3.h"
 
 #if LV_USE_THEME_DEFAULT
     #include "../extra/themes/default/lv_theme_default.h"
@@ -96,8 +96,11 @@ void lv_disp_drv_init(lv_disp_drv_t * driver)
     driver->dpi              = LV_DPI_DEF;
     driver->color_chroma_key = LV_COLOR_CHROMA_KEY;
 
-
-#if LV_USE_GPU_STM32_DMA2D
+#if LV_USE_GPU_RA6M3_G2D
+    driver->draw_ctx_init = lv_draw_ra6m3_2d_ctx_init;
+    driver->draw_ctx_deinit = lv_draw_ra6m3_2d_ctx_init;
+    driver->draw_ctx_size = sizeof(lv_draw_ra6m3_dma2d_ctx_t);
+#elif LV_USE_GPU_STM32_DMA2D
     driver->draw_ctx_init = lv_draw_stm32_dma2d_ctx_init;
     driver->draw_ctx_deinit = lv_draw_stm32_dma2d_ctx_init;
     driver->draw_ctx_size = sizeof(lv_draw_stm32_dma2d_ctx_t);
@@ -105,10 +108,14 @@ void lv_disp_drv_init(lv_disp_drv_t * driver)
     driver->draw_ctx_init = lv_draw_swm341_dma2d_ctx_init;
     driver->draw_ctx_deinit = lv_draw_swm341_dma2d_ctx_init;
     driver->draw_ctx_size = sizeof(lv_draw_swm341_dma2d_ctx_t);
-#elif LV_USE_GPU_NXP_PXP || LV_USE_GPU_NXP_VG_LITE
-    driver->draw_ctx_init = lv_draw_nxp_ctx_init;
-    driver->draw_ctx_deinit = lv_draw_nxp_ctx_deinit;
-    driver->draw_ctx_size = sizeof(lv_draw_nxp_ctx_t);
+#elif LV_USE_GPU_NXP_VG_LITE
+    driver->draw_ctx_init = lv_draw_vglite_ctx_init;
+    driver->draw_ctx_deinit = lv_draw_vglite_ctx_deinit;
+    driver->draw_ctx_size = sizeof(lv_draw_vglite_ctx_t);
+#elif LV_USE_GPU_NXP_PXP
+    driver->draw_ctx_init = lv_draw_pxp_ctx_init;
+    driver->draw_ctx_deinit = lv_draw_pxp_ctx_deinit;
+    driver->draw_ctx_size = sizeof(lv_draw_pxp_ctx_t);
 #elif LV_USE_GPU_SDL
     driver->draw_ctx_init = lv_draw_sdl_init_ctx;
     driver->draw_ctx_deinit = lv_draw_sdl_deinit_ctx;

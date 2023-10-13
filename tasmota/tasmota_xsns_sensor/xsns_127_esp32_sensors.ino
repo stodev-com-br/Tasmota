@@ -19,7 +19,6 @@
 
 #ifdef ESP32
 #ifdef USE_ESP32_SENSORS
-#ifndef CONFIG_IDF_TARGET_ESP32S3
 /*********************************************************************************************\
  * ESP32 CPU Temperature and optional Hall Effect sensor
  *
@@ -34,7 +33,7 @@
 
 #define XSNS_127                 127
 
-#if CONFIG_IDF_TARGET_ESP32
+#if CONFIG_IDF_TARGET_ESP32 && (ESP_IDF_VERSION_MAJOR < 5)         // Hall sensor is no more supported in esp-idf 5
 
 #define HALLEFFECT_SAMPLE_COUNT  32   // 32 takes about 12 mS at 80MHz CPU frequency
 
@@ -52,66 +51,74 @@ void Esp32SensorInit(void) {
   }
 }
 
-#endif  // CONFIG_IDF_TARGET_ESP32
+#endif  // CONFIG_IDF_TARGET_ESP32 && (ESP_IDF_VERSION_MAJOR < 5)
 
 void Esp32SensorShow(bool json) {
-  static bool add_global_temp = false;
+  bool json_end = false;
 
-  if (json) {
-    add_global_temp = !ResponseContains_P(PSTR(D_JSON_TEMPERATURE));
-  }
-  float c = CpuTemperature();  // in Celsius
-  if (add_global_temp) {
-    UpdateGlobalTemperature(c);
-  }
-  float t = ConvertTempToFahrenheit(c);
+  if (Settings->flag6.use_esp32_temperature) {  // SetOption146 - (ESP32) Show ESP32 internal temperature sensor
+    float c = CpuTemperature();  // in Celsius
+    float t = ConvertTempToFahrenheit(c);
 
-#if CONFIG_IDF_TARGET_ESP32
-  int value = 0;
+    if (json) {
+      if (!ResponseContains_P(PSTR(D_JSON_TEMPERATURE))) {
+        UpdateGlobalTemperature(c);
+      }
+      ResponseAppend_P(PSTR(",\"ESP32\":{\"" D_JSON_TEMPERATURE "\":%*_f"), Settings->flag2.temperature_resolution, &t);
+      json_end = true;
+
+#ifdef USE_DOMOTICZ
+//    Instead of below code use a rule like 'on tele-esp32#temperature do dzsend1 9988,%value% endon'
+//      where 9988 is the domoticz sensor Idx
+//    if (0 == TasmotaGlobal.tele_period) {
+//      if (!ResponseContains_P(PSTR(D_JSON_TEMPERATURE))) {  // Only send if no other sensor already did
+//        DomoticzFloatSensor(DZ_TEMP, t);
+//      }
+//    }
+#endif  // USE_DOMOTICZ
+
+#ifdef USE_WEBSERVER
+    } else {
+      WSContentSend_Temp("ESP32", t);
+#endif  // USE_WEBSERVER
+    }
+  }
+
+#if CONFIG_IDF_TARGET_ESP32 && (ESP_IDF_VERSION_MAJOR < 5)         // Hall sensor is no more supported in esp-idf 5
   if (HEData.present) {
+    int value = 0;
     for (uint32_t i = 0; i < HALLEFFECT_SAMPLE_COUNT; i++) {
       value += hallRead();
     }
     value /= HALLEFFECT_SAMPLE_COUNT;
-  }
-#endif  // CONFIG_IDF_TARGET_ESP32
 
-  if (json) {
-    bool temperature_present = (ResponseContains_P(PSTR(D_JSON_TEMPERATURE)));
-    ResponseAppend_P(PSTR(",\"ESP32\":{\"" D_JSON_TEMPERATURE "\":%*_f"), Settings->flag2.temperature_resolution, &t);
+    if (json) {
+      if (!json_end) {
+        ResponseAppend_P(PSTR(",\"ESP32\":{"));
+      } else {
+        ResponseAppend_P(PSTR(","));
+      }
+      ResponseAppend_P(PSTR("\"" D_JSON_HALLEFFECT "\":%d"), value);
+      json_end = true;
 
-#if CONFIG_IDF_TARGET_ESP32
-    if (HEData.present) {
-      ResponseAppend_P(PSTR(",\"" D_JSON_HALLEFFECT "\":%d"), value);
-    }
-#endif  // CONFIG_IDF_TARGET_ESP32
-
-    ResponseJsonEnd();
 #ifdef USE_DOMOTICZ
-    if (0 == TasmotaGlobal.tele_period) {
-      if (!temperature_present) {  // Only send if no other sensor already did
-        DomoticzFloatSensor(DZ_TEMP, t);
-      }
-
-#if CONFIG_IDF_TARGET_ESP32
-      if (HEData.present) {
-        DomoticzSensor(DZ_COUNT, value);
-      }
-#endif  // CONFIG_IDF_TARGET_ESP32
-
-    }
+//    Instead of below code use a rule like 'on tele-esp32#halleffect do dzsend1 9988,%value% endon'
+//      where 9988 is the domoticz sensor Idx
+//    if (0 == TasmotaGlobal.tele_period) {
+//      DomoticzSensor(DZ_COUNT, value);
+//    }
 #endif  // USE_DOMOTICZ
+
 #ifdef USE_WEBSERVER
-  } else {
-    WSContentSend_Temp("ESP32", t);
-
-#if CONFIG_IDF_TARGET_ESP32
-    if (HEData.present) {
+    } else {
       WSContentSend_P(HTTP_SNS_HALL_EFFECT, "ESP32", value);
-    }
-#endif  // CONFIG_IDF_TARGET_ESP32
-
 #endif  // USE_WEBSERVER
+    }
+  }
+#endif  // CONFIG_IDF_TARGET_ESP32 && (ESP_IDF_VERSION_MAJOR < 5)
+
+  if (json_end) {
+    ResponseJsonEnd();
   }
 }
 
@@ -119,7 +126,7 @@ void Esp32SensorShow(bool json) {
  * Interface
 \*********************************************************************************************/
 
-bool Xsns127(uint8_t function) {
+bool Xsns127(uint32_t function) {
   bool result = false;
 
   switch (function) {
@@ -131,15 +138,13 @@ bool Xsns127(uint8_t function) {
       Esp32SensorShow(0);
       break;
 #endif  // USE_WEBSERVER
-#if CONFIG_IDF_TARGET_ESP32
+#if CONFIG_IDF_TARGET_ESP32 && (ESP_IDF_VERSION_MAJOR < 5)         // Hall sensor is no more supported in esp-idf 5
     case FUNC_INIT:
       Esp32SensorInit();
       break;
-#endif  // CONFIG_IDF_TARGET_ESP32
+#endif  // CONFIG_IDF_TARGET_ESP32 && (ESP_IDF_VERSION_MAJOR < 5)
   }
   return result;
 }
-
-#endif  // Not CONFIG_IDF_TARGET_ESP32S3
 #endif  // USE_ESP32_SENSORS
 #endif  // ESP32

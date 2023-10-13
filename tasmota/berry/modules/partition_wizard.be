@@ -24,17 +24,40 @@ class Partition_wizard_UI
 
     if persist.find("factory_migrate") == true
       # remove marker to avoid bootloop if something goes wrong
+      tasmota.log("UPL: Resuming after step 1", 2)
       persist.remove("factory_migrate")
       persist.save()
 
       # continue the migration process 5 seconds after Wifi is connected
       def continue_after_5s()
-        tasmota.remove_rule("parwiz_5s")      # first remove rule to avoid firing it again at Wifi reconnect
+        tasmota.remove_rule("parwiz_5s1")      # first remove rule to avoid firing it again at Wifi reconnect
+        tasmota.remove_rule("parwiz_5s2")      # first remove rule to avoid firing it again at Wifi reconnect
         tasmota.set_timer(5000, /-> self.do_safeboot_partitioning())  # delay by 5 s
       end
-      tasmota.add_rule("Wifi#Connected=1", continue_after_5s, "parwiz_5s")
+      tasmota.add_rule("Wifi#Connected=1", continue_after_5s, "parwiz_5s1")
+      tasmota.add_rule("Wifi#Connected==1", continue_after_5s, "parwiz_5s2")
       
     end
+  end
+
+  # ----------------------------------------------------------------------
+  # Patch partition core since we can't chang the solidified code
+  # ----------------------------------------------------------------------
+  def patch_partition_core(p)
+    var otadata = p.otadata
+
+    # patch load
+    import flash
+    var otadata0 = flash.read(otadata.offset, 32)
+    var otadata1 = flash.read(otadata.offset + 0x1000, 32)
+    otadata.seq0 = otadata0.get(0, 4)   #- ota_seq for block 1 -#
+    otadata.seq1 = otadata1.get(0, 4)   #- ota_seq for block 2 -#
+    var valid0 = otadata0.get(28, 4) == otadata.crc32_ota_seq(otadata.seq0) #- is CRC32 valid? -#
+    var valid1 = otadata1.get(28, 4) == otadata.crc32_ota_seq(otadata.seq1) #- is CRC32 valid? -#
+    if !valid0   otadata.seq0 = nil end
+    if !valid1   otadata.seq1 = nil end
+
+    otadata._validate()
   end
 
   def default_safeboot_URL()
@@ -54,15 +77,34 @@ class Partition_wizard_UI
       "<form id=but_part_mgr style='display: block;' action='part_wiz' method='get'><button>Partition Wizard</button></form><p></p>")
   end
 
+  # ----------------------------------------------------------------------
+  # Get last fs
+  # 
+  # Get the last fs partition
+  # Return the actual slot
+  # ----------------------------------------------------------------------
+  def get_last_fs(p)
+    var sz = size(p.slots)
+    var idx = 1
+    while idx < sz
+      var slot = p.slots[-idx]
+      if slot.is_spiffs()
+        return slot
+      end
+      idx += 1
+    end
+    return nil
+  end
+
   #- ---------------------------------------------------------------------- -#
   #- Get fs unallocated size
   #- ---------------------------------------------------------------------- -#
   def get_unallocated_k(p)
-    var last_slot = p.slots[-1]
-    if last_slot.is_spiffs()
+    var last_fs = self.get_last_fs(p)
+    if last_fs != nil
       # verify that last slot is filesystem
       var flash_size_k = self.get_max_flash_size_k(p)
-      var partition_end_k = (last_slot.start + last_slot.size) / 1024   # last kb used for fs
+      var partition_end_k = (last_fs.start + last_fs.sz) / 1024   # last kb used for fs
       if  partition_end_k < flash_size_k
         return flash_size_k - partition_end_k
       end
@@ -74,8 +116,8 @@ class Partition_wizard_UI
   #- Get max fs start address when expanded to maximum
   #- ---------------------------------------------------------------------- -#
   def get_max_fs_start_k(p)
-    var last_slot = p.slots[-1]
-    if last_slot.is_spiffs()    # verify that last slot is filesystem
+    var last_fs = p.slots[-1]
+    if last_fs != nil    # verify that last slot is filesystem
       # get end of previous partition slot
       var last_app = p.slots[-2]
       # round upper 64kB
@@ -86,7 +128,7 @@ class Partition_wizard_UI
   end
 
   #- ---------------------------------------------------------------------- -#
-  #- Get max falsh size
+  #- Get max flash size
   #
   #  Takes into account that the flash size written may not be accurate
   #  and the flash chip may be larger
@@ -100,10 +142,34 @@ class Partition_wizard_UI
     return flash_size_k
   end
 
+  # ----------------------------------------------------------------------
+  # Remove any non wanted partion after last FS
+  # ----------------------------------------------------------------------
+  def remove_partition_after_last_fs(p)
+    # remove any partition after last fs
+    do
+      var last_fs = self.get_last_fs(p)
+      var changed = false
+      if last_fs != nil
+        while true
+          var last_slot = p.slots[-1]
+          if !last_slot.is_spiffs() && (last_slot.type != 0)
+            p.slots.remove(size(p.slots) - 1)     # remove last slot
+            changed = true
+          else
+            break
+          end
+        end
+        if changed    p.save()    end
+      end
+    end
+  end
+
   #- ---------------------------------------------------------------------- -#
   #- Resize flash definition if needed
   #- ---------------------------------------------------------------------- -#
   def resize_max_flash_size_k(p)
+    self.remove_partition_after_last_fs(p)
     var flash_size_k = tasmota.memory()['flash']
     var flash_size_real_k = tasmota.memory().find("flash_real", flash_size_k)
     var flash_definition_sector = self.get_flash_definition_sector(p)
@@ -123,6 +189,9 @@ class Partition_wizard_UI
       elif flash_size_real_m == 4      flash_size_code = 0x20
       elif flash_size_real_m == 8      flash_size_code = 0x30
       elif flash_size_real_m == 16     flash_size_code = 0x40
+      elif flash_size_real_m == 32     flash_size_code = 0x50
+      elif flash_size_real_m == 64     flash_size_code = 0x60
+      elif flash_size_real_m == 128    flash_size_code = 0x70
       end
 
       if flash_size_code != nil
@@ -141,9 +210,9 @@ class Partition_wizard_UI
   #- Get current fs size
   #- ---------------------------------------------------------------------- -#
   def get_cur_fs_size_k(p)
-    var last_slot = p.slots[-1]
-    if last_slot.is_spiffs()    # verify that last slot is filesystem
-      return (last_slot.size + 1023) / 1024
+    var last_fs = p.slots[-1]
+    if last_fs != nil
+      return (last_fs.sz + 1023) / 1024
     end
     return 0
   end
@@ -231,7 +300,7 @@ class Partition_wizard_UI
   def factory_migrate_eligible(p)
     if p.ota_max() <= 0     return false end      # device does not have 2x OTA
     if p.get_factory_slot() != nil return false end
-    if !p.slots[-1].is_spiffs()  return false end
+    if self.get_last_fs(p) == nil return false end
     return true                                  # device does not have factory partition
   end
 
@@ -265,7 +334,7 @@ class Partition_wizard_UI
     var app0 = p.get_ota_slot(0)
     var app1 = p.get_ota_slot(0)
     var app0_firmware_size = (app0 != nil) ? app0.get_image_size() : -1
-    var app1_size          = (app1 != nil) ? app1.size : -1
+    var app1_size          = (app1 != nil) ? app1.sz : -1
     if app0_firmware_size < 0 || app1_size < 0 return "can't find app0/1 sizes" end
     if app0_firmware_size >= app1_size  return "`app1` is too small" end
     return false
@@ -291,11 +360,10 @@ class Partition_wizard_UI
   # - true if DONE
   # - string if ERROR, indicating the error
   def test_step_2(p)
-    import string
     if !self.factory_migrate_eligible(p)    return "not eligible to migration" end
 
     var app0 = p.get_ota_slot(0)
-    if app0.size < (self.app_size_min * 1024)        return "`app0` is too small for `safeboot`" end
+    if app0.sz < (self.app_size_min * 1024)        return "`app0` is too small for `safeboot`" end
     var app0_image_size = app0.get_image_size()
     if (app0_image_size > 0) && (app0_image_size < (self.app_size_min * 1024))        return true end
     return false
@@ -315,14 +383,14 @@ class Partition_wizard_UI
   #     `app0` renamed to `safeboot`
   #     `app0` changed subtype to `factory`
   #     `app1` moved to right after `factory` and resized
-  #     `app1` chaned subtype to `app0` and renamed `app0`
+  #     `app1` changed subtype to `app0` and renamed `app0`
+  #     remove any partition past the last fs
   #
   # Returns:
   # - false if READY
   # - true if DONE
   # - string if ERROR, indicating the error
   def test_step_3(p)
-    import string
     if !self.factory_migrate_eligible(p)    return "not eligible to migration" end
 
     return false
@@ -340,20 +408,19 @@ class Partition_wizard_UI
   # - true if DONE
   # - string if ERROR, indicating the error
   def test_step_4(p)
-    import string
     
     return false
     # var app0 = p.get_ota_slot(0)
     # if app0.get_image_size() > (self.app_size_min * 1024)        return "`app0` is too small for `safeboot`" end
   end
 
-  static def copy_ota(from_addr, to_addr, size)
+  static def copy_ota(from_addr, to_addr, sz)
     import flash
     import string
-    var size_left = size
+    var size_left = sz
     var offset = 0
   
-    tasmota.log(string.format("UPL: Copy flash from 0x%06X to 0x%06X (size: %ikB)", from_addr, to_addr, size / 1024), 2)
+    tasmota.log(string.format("UPL: Copy flash from 0x%06X to 0x%06X (size: %ikB)", from_addr, to_addr, sz / 1024), 2)
     while size_left > 0
       var b = flash.read(from_addr + offset, 4096)
       flash.erase(to_addr + offset, 4096)
@@ -368,6 +435,7 @@ class Partition_wizard_UI
   end
 
   def do_step_1(p)
+    import persist
     var step1_state = self.test_step_1(p)
     if step1_state == true return true end
     if type(step1_state) == 'string)'   raise "internal_error", step1_state end
@@ -376,11 +444,14 @@ class Partition_wizard_UI
     var app0 = p.get_ota_slot(0)
     var app1 = p.get_ota_slot(1)
     var app0_size = app0.get_image_size()
-    if app0_size > app1.size  raise "internal_error", "`app1` too small to copy firmware form `app0`" end
+    if app0_size > app1.sz  raise "internal_error", "`app1` too small to copy firmware form `app0`" end
     self.copy_ota(app0.start, app1.start, app0_size)
 
     p.set_active(1)
     p.save()
+
+    persist.factory_migrate = true
+    persist.save()
 
     tasmota.log("UPL: restarting on `app1`", 2)
     tasmota.cmd("Restart 1")
@@ -415,32 +486,47 @@ class Partition_wizard_UI
 
 
   def do_step_3(p)
-    import string
     import flash
 
     var step3_state = self.test_step_3(p)
     if step3_state == true return true end
-    if type(step3_state) == 'string)'   raise "internal_error", step3_state end
+    if type(step3_state) == 'string'   raise "internal_error", step3_state end
+
+    # remove any partition after last fs
+    self.remove_partition_after_last_fs(p)
 
     var app0 = p.get_ota_slot(0)
     var app1 = p.get_ota_slot(1)
     if app0 == nil || app1 == nil       raise "internal_error", "there are no `app0` or `app1` partitions" end
     var factory_size = self.app_size_min * 1024
 
-    var firm0_size = app0.get_image_size()
-    if firm0_size <= 0              raise "internal_error", "invalid size in app0 partition" end
-    if firm0_size >= factory_size   raise "internal_error", "app0 partition is too big for factory" end
+    do    # open new scope
+      var firm0_size = app0.get_image_size()    # get the size of the partition holding safeboot and check values
+      if firm0_size <= 0              raise "internal_error", "invalid size in app0 partition" end
+      if firm0_size >= factory_size   raise "internal_error", "app0 partition is too big for factory" end
+    end
+
+    # remove any SPIFFS partition that is not at the end of the partition table
+    var idx = 1
+    while idx < size(p.slots) - 1   # skip explicitly the last partition
+      if p.slots[idx].is_spiffs()
+        p.slots.remove(idx)
+        tasmota.log("UPL: removesd unused SPIFFS partition", 2)
+      else
+        idx += 1
+      end
+    end
 
     # do the change
     app0.subtype = 0        # factory subtype
-    app0.size = factory_size
+    app0.sz = factory_size
     app0.label = 'safeboot'
 
     app1.subtype = 0x10     # app1 becomes app0
     app1.label = 'app0'
     var f1_start = app1.start
     app1.start = app0.start + factory_size
-    app1.size += f1_start - app1.start
+    app1.sz += f1_start - app1.start
 
     # swicth partitions
     p.set_active(0)
@@ -526,10 +612,10 @@ class Partition_wizard_UI
 
         var usage_str = "unknown"
         var used = slot.get_image_size()
-        if (used >= 0) && (used <= slot.size)
-          usage_str = string.format("used %i%%", ((used / 1024) * 100) / (slot.size / 1024))
+        if (used >= 0) && (used <= slot.sz)
+          usage_str = string.format("used %i%%", ((used / 1024) * 100) / (slot.sz / 1024))
         end
-        var title = string.format("%ssubtype:%s offset:0x%06X size:0x%06X", current_boot_partition ? "booted " : "", slot.subtype_to_string(), slot.start, slot.size)
+        var title = string.format("%ssubtype:%s offset:0x%06X size:0x%06X", current_boot_partition ? "booted " : "", slot.subtype_to_string(), slot.start, slot.sz)
         var col_before = ""
         var col_after = ""
         if current_boot_partition
@@ -538,11 +624,11 @@ class Partition_wizard_UI
         end
         # webserver.content_send(string.format("<p><b>%s</b> [%s]: %i KB (%s)</p>", slot.label, slot.subtype_to_string(), slot.size / 1024, usage_str))
         webserver.content_send(string.format("<tr><td title='%s'><b>%s%s%s</b>:&nbsp;</td><td align='right'> %i KB </td><td>&nbsp;(%s)</td></tr>",
-                                             title, col_before, slot.label, col_after, slot.size / 1024, usage_str))
+                                             title, col_before, slot.label, col_after, slot.sz / 1024, usage_str))
       elif slot.is_spiffs()
         # spiffs partition
-        var title = string.format("subtype:%s offset:0x%06X size:0x%06X", slot.subtype_to_string(), slot.start, slot.size)
-        webserver.content_send(string.format("<tr><td title='%s'><b>fs</b>:&nbsp;</td><td align='right'> %i KB</td></tr>", title, slot.size / 1024))
+        var title = string.format("subtype:%s offset:0x%06X size:0x%06X", slot.subtype_to_string(), slot.start, slot.sz)
+        webserver.content_send(string.format("<tr><td title='%s'><b>fs</b>:&nbsp;</td><td align='right'> %i KB</td></tr>", title, slot.sz / 1024))
       end
     end
 
@@ -550,7 +636,7 @@ class Partition_wizard_UI
     if unallocated > 0
       var last_slot = p.slots[-1]
       # verify that last slot is file-system
-      var partition_end_k = (last_slot.start + last_slot.size) / 1024   # last kb used for fs
+      var partition_end_k = (last_slot.start + last_slot.sz) / 1024   # last kb used for fs
       webserver.content_send(string.format("<tr><td title='offset:0x%06X size:0x%06X'>&lt;free&gt;:&nbsp;</td><td align='right'> %i KB</td></tr>",
                                             partition_end_k * 1024, unallocated * 1024, unallocated))
     end
@@ -570,10 +656,10 @@ class Partition_wizard_UI
   #######################################################################
   def page_part_mgr()
     import webserver
-    import string
     import partition_core
     if !webserver.check_privileged_access() return nil end
     var p = partition_core.Partition()                    # load partition layout
+    self.patch_partition_core(p)
 
     webserver.content_start("Partition Wizard")           #- title of the web page -#
     webserver.content_send_style()                  #- send standard Tasmota styles -#
@@ -598,15 +684,16 @@ class Partition_wizard_UI
   #######################################################################
   def page_part_ctl()
     import webserver
+    import string
     if !webserver.check_privileged_access() return nil end
 
-    import string
     import partition_core
     import persist
     
 
     #- check that the partition is valid -#
     var p = partition_core.Partition()
+    self.patch_partition_core(p)
 
     try
       
@@ -621,7 +708,7 @@ class Partition_wizard_UI
 
         # since unallocated succeeded, we know the last slot is FS
         var fs_slot = p.slots[-1]
-        fs_slot.size += unallocated * 1024
+        fs_slot.sz += unallocated * 1024
         p.save()
         p.invalidate_spiffs()   # erase SPIFFS or data is corrupt
 
@@ -632,7 +719,7 @@ class Partition_wizard_UI
       # Resize FS to arbitrary size
       #---------------------------------------------------------------------#
       elif webserver.has_arg("resize_fs")
-        if !self.has_factory_layout(p)  raise "internal_error", "Device does not avec safeboot layout" end
+        if !self.has_factory_layout(p)  raise "internal_error", "Device does not have safeboot layout" end
 
         var fs = p.slots[-1]
         var last_app = p.slots[-2]
@@ -649,12 +736,12 @@ class Partition_wizard_UI
 
         # apply the change
         # shrink last OTA App
-        var delta = (fs_target * 1024) - fs.size
-        last_app.size -= delta
+        var delta = (fs_target * 1024) - fs.sz
+        last_app.sz -= delta
 
         # move fs
         fs.start -= delta
-        fs.size += delta
+        fs.sz += delta
         p.save()
         p.invalidate_spiffs()
 
@@ -707,17 +794,17 @@ class Partition_wizard_UI
   #  string: error with description of error
   def do_safeboot_partitioning()
     import webserver
-    import string
     import partition_core
+    import string
 
     var p = partition_core.Partition()                    # load partition layout
+    self.patch_partition_core(p)
     if !self.factory_migrate_eligible(p) return true end
 
     # STEP 1
     var step1_state = self.test_step_1(p)
     if type(step1_state) == 'string'  return step1_state end
     if step1_state == false
-      import persist
       tasmota.log("UPL: Starting step 1", 2)
       try
         self.do_step_1(p)
@@ -725,8 +812,6 @@ class Partition_wizard_UI
         tasmota.log(string.format("UPL: error (%s) %s", e, m), 2)
         return m
       end
-      persist.factory_migrate = true
-      persist.save()
       return false
     end
     tasmota.log("UPL: Step 1 Done", 2)

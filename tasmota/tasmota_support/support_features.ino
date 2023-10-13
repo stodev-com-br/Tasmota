@@ -167,8 +167,8 @@ void ResponseAppendFeatures(void)
 #ifdef USE_MP3_PLAYER
     feature2 |= 0x00002000;  // xdrv_14_mp3.ino
 #endif
-#if defined(USE_I2C) && defined(USE_PCA9685)
-    feature2 |= 0x00004000;  // xdrv_15_pca9685.ino
+#if defined(USE_I2C) && (defined(USE_PCA9685) || defined(USE_PCA9685_V2))
+    feature2 |= 0x00004000;  // xdrv_15_pca9685.ino or xdrv_15_pca9685_v2.ino
 #endif
 #if defined(USE_LIGHT) && defined(USE_TUYA_MCU)
     feature2 |= 0x00008000;  // xdrv_16_tuyadimmer.ino
@@ -319,7 +319,7 @@ void ResponseAppendFeatures(void)
     feature3 |= 0x40000000;  // xsns_27_apds9960.ino
 #endif
 #ifdef USE_TM1638
-    feature3 |= 0x80000000;  // xsns_28_tm1638.ino
+    feature3 |= 0x80000000;  // xdrv_66_tm1638.ino
 #endif
   }
 
@@ -331,8 +331,8 @@ void ResponseAppendFeatures(void)
 #if defined(USE_I2C) && defined(USE_MPR121)
     feature4 |= 0x00000002;  // xsns_30_mpr121.ino
 #endif
-#if defined(USE_I2C) && defined(USE_CCS811)
-    feature4 |= 0x00000004;  // xsns_31_ccs811.ino
+#if defined(USE_I2C) && (defined(USE_CCS811) || defined(USE_CCS811_V2))
+    feature4 |= 0x00000004;  // xsns_31_ccs811.ino or xsns_31_ccs811_v2.ino
 #endif
 #if defined(USE_I2C) && defined(USE_MPU6050)
     feature4 |= 0x00000008;  // xsns_32_mpu6050.ino
@@ -819,44 +819,90 @@ void ResponseAppendFeatures(void)
     feature8 |= 0x40000000;  // xlgt_09_sm2335.ino
 #endif
 #ifdef USE_DISPLAY_TM1621_SONOFF
-    feature8 |= 0x80000000;  // xdrv_87_tm1621_sonoff.ino
+    feature8 |= 0x80000000;  // xdrv_87_esp32_sonoff_tm1621.ino
 #endif
   }
 
   static uint32_t feature9 = 0x00000000;
   if (!feature9) {           // Only fill this once
-//    feature9 |= 0x00000001;
-//    feature9 |= 0x00000002;
-//    feature9 |= 0x00000004;
-//    feature9 |= 0x00000008;
-
-//    feature9 |= 0x00000010;
-//    feature9 |= 0x00000020;
-//    feature9 |= 0x00000040;
-//    feature9 |= 0x00000080;
-
-//    feature9 |= 0x00000100;
-//    feature9 |= 0x00000200;
-//    feature9 |= 0x00000400;
-//    feature9 |= 0x00000800;
-
-//    feature9 |= 0x00001000;
-//    feature9 |= 0x00002000;
-//    feature9 |= 0x00004000;
-//    feature9 |= 0x00008000;
-
-//    feature9 |= 0x00010000;
-//    feature9 |= 0x00020000;
-//    feature9 |= 0x00040000;
-//    feature9 |= 0x00080000;
-
-//    feature9 |= 0x00100000;
-//    feature9 |= 0x00200000;
-//    feature9 |= 0x00400000;
-//    feature9 |= 0x00800000;
-
-//    feature9 |= 0x01000000;
-//    feature9 |= 0x02000000;
+#if defined(USE_I2C) && defined(USE_SGP40)
+    feature9 |= 0x00000001;  // xsns_98_sgp40.ino
+#endif
+#if defined(USE_I2C) && defined(USE_LUXV30B)
+    feature9 |= 0x00000002;  // xsns_99_luxv30b.ino
+#endif
+#if defined(USE_SPI) && defined(USE_CANSNIFFER)
+    feature9 |= 0x00000004;  // xsns_87_can_sniffer.ino
+#endif
+#if defined(USE_I2C) && defined(USE_QMC5883L)
+    feature9 |= 0x00000008;  // xsns_33_qmc5882l.ino
+#endif
+#if defined(USE_ENERGY_SENSOR) && defined(USE_MODBUS_ENERGY)
+    feature9 |= 0x00000010;  // xnrg_29_modbus.ino
+#endif
+#if defined(USE_SPI) && defined(USE_SHELLY_PRO)
+    feature9 |= 0x00000020;  // xdrv_88_esp32_shelly_pro.ino
+#endif
+#ifdef USE_DALI
+    feature9 |= 0x00000040;  // xdrv_89_esp32_dali.ino
+#endif
+#if defined(USE_LIGHT) && defined(USE_BP1658CJ)
+    feature9 |= 0x00000080;  // xlgt_10_bp1658cj.ino
+#endif
+#ifdef USE_DINGTIAN_RELAY
+    feature9 |= 0x00000100;  // xdrv_90_dingtian_relay.ino
+#endif
+#if defined(USE_I2C) && defined(USE_HMC5883L)
+    feature9 |= 0x00000200;  // xsns_101_hmc5883l.ino
+#endif
+#ifdef USE_LD2410
+    feature9 |= 0x00000400;  // xsns_102_ld2410.ino
+#endif
+#ifdef USE_ME007
+    feature9 |= 0x00000800;  // xsns_23_me007.ino
+#endif
+#if defined(USE_I2C) && defined(USE_DISPLAY) && defined(USE_DISPLAY_TM1650)
+    feature9 |= 0x00001000;  // xdsp_20_tm1650.ino
+#endif
+#if defined(USE_I2C) && defined(USE_PCA9632)
+    feature9 |= 0x00002000;  // xdrv_64_pca9632.ino
+#endif
+#ifdef USE_TUYAMCUBR
+    feature9 |= 0x00004000;  // xdrv_65_tuyamcubr.ino
+#endif
+#if defined(USE_I2C) && defined(USE_SEN5X)
+    feature9 |= 0x00008000;  // xsns_103_sen5x.ino
+#endif
+#if defined(USE_ENERGY_SENSOR) && defined(USE_BIOPDU)
+    feature9 |= 0x00010000;  // xnrg_24_biopdu.ino
+#endif
+#if (defined(USE_I2C) || defined(USE_SPI)) && defined(USE_MCP23XXX_DRV)
+    feature9 |= 0x00020000;  // xdrv_67_mcp23xxx.ino
+#endif
+#if defined(USE_I2C) && defined(USE_PMSA003I)
+    feature9 |= 0x00040000;  // xsns_104_pmsa003i.ino
+#endif
+#ifdef USE_LOX_O2
+    feature9 |= 0x00080000;  // xsns_105_lox_o2.ino
+#endif
+#if defined(USE_I2C) && defined(USE_GDK101)
+    feature9 |= 0x00100000;  // xsns_106_gdk101.ino
+#endif
+#ifdef USE_GM861
+    feature9 |= 0x00200000;  // xsns_107_gm861.ino
+#endif
+#if defined(USE_I2C) && defined(USE_TC74)
+    feature9 |= 0x00400000;  // xsns_108_tc74.ino
+#endif
+#if defined(USE_I2C) && defined(USE_PCA9557)
+    feature9 |= 0x00800000;  // xdrv_69_pca9557.ino
+#endif
+#if defined(USE_I2C) && defined(USE_SGP4X)
+    feature9 |= 0x01000000;  // xdrv_109_sgp4x.ino
+#endif
+#if defined(USE_I2C) && defined(USE_MAX17043)
+    feature9 |= 0x02000000;
+#endif
 //    feature9 |= 0x04000000;
 //    feature9 |= 0x08000000;
 

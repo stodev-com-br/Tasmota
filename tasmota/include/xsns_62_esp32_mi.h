@@ -148,6 +148,7 @@ struct MI32connectionContextBerry_t{
   NimBLEUUID serviceUUID;
   NimBLEUUID charUUID;
   uint16_t returnCharUUID;
+  uint16_t handle;
   uint8_t MAC[6];
   uint8_t * buffer;
   uint8_t operation;
@@ -162,17 +163,29 @@ struct MI32notificationBuffer_t{
   uint16_t returnCharUUID;
 };
 
+struct BLEqueueBuffer_t{
+  union{
+    uint8_t *buffer;
+    int32_t value;
+  };
+  size_t length;
+  uint16_t returnCharUUID;
+  uint16_t handle;
+  uint16_t type;
+};
+
 struct {
   // uint32_t period;             // set manually in addition to TELE-period, is set to TELE-period after start
   TaskHandle_t ScanTask = nullptr;
   TaskHandle_t ConnTask = nullptr;
+  TaskHandle_t ServerTask = nullptr;
   MI32connectionContextBerry_t *conCtx = nullptr;
   union {
     struct {
       uint32_t init:1;
       uint32_t connected:1;
       uint32_t autoScan:1;
-      uint32_t canScan:1;
+      // uint32_t canScan:1;
       uint32_t runningScan:1;
       uint32_t updateScan:1;
       uint32_t deleteScanTask:1;
@@ -191,6 +204,11 @@ struct {
       uint32_t triggerNextConnJob:1;
       uint32_t readyForNextConnJob:1;
       uint32_t discoverAttributes:1;
+
+      uint32_t triggerNextServerJob:1;
+      uint32_t readyForNextServerJob:1;
+      uint32_t triggerBerryServerCB:1;
+      uint32_t deleteServerTask:1;
     };
     uint32_t all = 0;
   } mode;
@@ -201,7 +219,6 @@ struct {
     uint32_t allwaysAggregate:1; // always show all known values of one sensor in brdigemode
     uint32_t noSummary:1;        // no sensor values at TELE-period
     uint32_t directBridgeMode:1; // send every received BLE-packet as a MQTT-message in real-time
-    uint32_t showRSSI:1;
     uint32_t activeScan:1;
     uint32_t ignoreBogusBattery:1;
     uint32_t minimalSummary:1;   // DEPRECATED!!
@@ -219,8 +236,9 @@ struct {
   uint8_t HKinfoMsg = 0;
   char hk_setup_code[11];
 #endif //USE_MI_HOMEKIT
-  void *beConnCB; 
+  void *beConnCB;
   void *beAdvCB;
+  void *beServerCB;
   uint8_t *beAdvBuf;
   uint8_t infoMsg = 0;
 } MI32;
@@ -230,6 +248,7 @@ struct mi_sensor_t{
   uint8_t lastCnt; //device generated counter of the packet
   uint8_t shallSendMQTT;
   uint8_t MAC[6];
+  uint16_t PID;
   uint8_t *key;
   uint32_t lastTimeSeen;
   union {
@@ -335,6 +354,7 @@ const char kMI32_Commands[] PROGMEM = D_CMND_MI32 "|Key|Cfg|Option";
 
 void (*const MI32_Commands[])(void) PROGMEM = {&CmndMi32Key, &CmndMi32Cfg, &CmndMi32Option };
 
+#define UNKNOWN_MI  0
 #define FLORA       1
 #define MJ_HT_V1    2
 #define LYWSD02     3
@@ -351,8 +371,9 @@ void (*const MI32_Commands[])(void) PROGMEM = {&CmndMi32Key, &CmndMi32Cfg, &Cmnd
 #define SJWS01L     14
 #define PVVX        15
 #define YLKG08      16
+#define YLAI003     17
 
-#define MI32_TYPES    16 //count this manually
+#define MI32_TYPES    17 //count this manually
 
 const uint16_t kMI32DeviceID[MI32_TYPES]={ 0x0098, // Flora
                                   0x01aa, // MJ_HT_V1
@@ -369,33 +390,15 @@ const uint16_t kMI32DeviceID[MI32_TYPES]={ 0x0098, // Flora
                                   0x098b, // MCCGQ02
                                   0x0863, // SJWS01L
                                   0x944a, // PVVX -> this is a fake ID
-                                  0x03b6  // YLKG08 and YLKG07 - version w/wo mains
+                                  0x03b6, // YLKG08 and YLKG07 - version w/wo mains
+                                  0x07bf, // YLAI003
                                   };
 
-const char kMI32DeviceType1[] PROGMEM = "Flora";
-const char kMI32DeviceType2[] PROGMEM = "MJ_HT_V1";
-const char kMI32DeviceType3[] PROGMEM = "LYWSD02";
-const char kMI32DeviceType4[] PROGMEM = "LYWSD03";
-const char kMI32DeviceType5[] PROGMEM = "CGG1";
-const char kMI32DeviceType6[] PROGMEM = "CGD1";
-const char kMI32DeviceType7[] PROGMEM = "NLIGHT";
-const char kMI32DeviceType8[] PROGMEM = "MJYD2S";
-const char kMI32DeviceType9[] PROGMEM = "YLYK01"; //old name yeerc
-const char kMI32DeviceType10[] PROGMEM ="MHOC401";
-const char kMI32DeviceType11[] PROGMEM ="MHOC303";
-const char kMI32DeviceType12[] PROGMEM ="ATC";
-const char kMI32DeviceType13[] PROGMEM ="MCCGQ02";
-const char kMI32DeviceType14[] PROGMEM ="SJWS01L";
-const char kMI32DeviceType15[] PROGMEM ="PVVX";
-const char kMI32DeviceType16[] PROGMEM ="YLKG08";
-const char * kMI32DeviceType[] PROGMEM = {kMI32DeviceType1,kMI32DeviceType2,kMI32DeviceType3,kMI32DeviceType4,
-                                          kMI32DeviceType5,kMI32DeviceType6,kMI32DeviceType7,kMI32DeviceType8,
-                                          kMI32DeviceType9,kMI32DeviceType10,kMI32DeviceType11,kMI32DeviceType12,
-                                          kMI32DeviceType13,kMI32DeviceType14,kMI32DeviceType15,kMI32DeviceType16};
+const char kMI32DeviceType[] PROGMEM = {"Flora|MJ_HT_V1|LYWSD02|LYWSD03|CGG1|CGD1|NLIGHT|MJYD2S|YLYK01|MHOC401|MHOC303|ATC|MCCGQ02|SJWS01L|PVVX|YLKG08|YLAI003"};
 
 const char kMI32_ConnErrorMsg[] PROGMEM = "no Error|could not connect|did disconnect|got no service|got no characteristic|can not read|can not notify|can not write|did not write|notify time out";
 
-const char kMI32_BLEInfoMsg[] PROGMEM = "Scan ended|Got Notification|Did connect|Did disconnect|Still connected|Start passive scanning|Start active scanning";
+const char kMI32_BLEInfoMsg[] PROGMEM = "Scan ended|Got Notification|Did connect|Did disconnect|Still connected|Start passive scanning|Start active scanning|Server characteristic set|Server advertisement set|Server scan response set|Server client did connect|Server client did disconnect";
 
 const char kMI32_HKInfoMsg[] PROGMEM = "HAP core started|HAP core did not start!!|HAP controller disconnected|HAP controller connected|HAP outlet added";
 
@@ -413,6 +416,33 @@ enum MI32_Commands {          // commands useable in console or rules
 enum MI32_TASK {
   MI32_TASK_SCAN = 0,
   MI32_TASK_CONN = 1,
+  MI32_TASK_SERV = 2,
+};
+
+enum BLE_CLIENT_OP {
+BLE_OP_READ = 1,
+BLE_OP_WRITE,
+BLE_OP_SUBSCRIBE,
+BLE_OP_UNSUBSCRIBE, //maybe used later
+BLE_OP_DISCONNECT,
+BLE_OP_GET_NOTIFICATION = 103,
+};
+
+enum BLE_SERVER_OP {
+//commands
+BLE_OP_SET_ADV = 201,
+BLE_OP_SET_SCAN_RESP,
+BLE_OP_SET_CHARACTERISTIC = 211,
+//response
+BLE_OP_ON_READ = 221,
+BLE_OP_ON_WRITE,
+BLE_OP_ON_UNSUBSCRIBE,
+BLE_OP_ON_SUBSCRIBE_TO_NOTIFICATIONS,
+BLE_OP_ON_SUBSCRIBE_TO_INDICATIONS,
+BLE_OP_ON_SUBSCRIBE_TO_NOTIFICATIONS_AND_INDICATIONS,
+BLE_OP_ON_CONNECT,
+BLE_OP_ON_DISCONNECT,
+BLE_OP_ON_STATUS,
 };
 
 enum MI32_ConnErrorMsg {
@@ -435,7 +465,12 @@ enum MI32_BLEInfoMsg {
   MI32_DID_DISCONNECT,
   MI32_STILL_CONNECTED,
   MI32_START_SCANNING_PASSIVE,
-  MI32_START_SCANNING_ACTIVE
+  MI32_START_SCANNING_ACTIVE,
+  MI32_SERV_CHARACTERISTIC_ADDED,
+  MI32_SERV_ADVERTISEMENT_ADDED,
+  MI32_SERV_SCANRESPONSE_ADDED,
+  MI32_SERV_CLIENT_CONNECTED,
+  MI32_SERV_CLIENT_DISCONNECTED
 };
 
 enum MI32_HKInfoMsg {

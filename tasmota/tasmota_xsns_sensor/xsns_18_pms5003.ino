@@ -26,6 +26,7 @@
  * Hardware Serial will be selected if GPIO3 = [PMS5003]
  * You can either support PMS3003 or PMS5003-7003 at one time. To enable the PMS3003 support
  * you must enable the define PMS_MODEL_PMS3003 on your configuration file.
+ * For PMSx003T models that report temperature and humidity define PMS_MODEL_PMS5003T
 \*********************************************************************************************/
 
 #define XSNS_18             18
@@ -75,7 +76,12 @@ struct pmsX003data {
 #ifdef PMS_MODEL_PMS3003
   uint16_t reserved1, reserved2, reserved3;
 #else
-  uint16_t particles_03um, particles_05um, particles_10um, particles_25um, particles_50um, particles_100um;
+  uint16_t particles_03um, particles_05um, particles_10um, particles_25um;
+#ifdef PMS_MODEL_PMS5003T
+  uint16_t temperature10x, humidity10x;
+#else
+  uint16_t particles_50um, particles_100um;
+#endif // PMS_MODEL_PMS5003T
   uint16_t unused;
 #endif  // PMS_MODEL_PMS3003
   uint16_t checksum;
@@ -242,8 +248,7 @@ void PmsSecond(void)                 // Every second
 
 /*********************************************************************************************/
 
-void PmsInit(void)
-{
+void PmsInit(void) {
   Pms.type = 0;
   if (PinUsed(GPIO_PMS5003_RX)) {
     PmsSerial = new TasmotaSerial(Pin(GPIO_PMS5003_RX), (PinUsed(GPIO_PMS5003_TX)) ? Pin(GPIO_PMS5003_TX) : -1, 1);
@@ -268,46 +273,39 @@ void PmsInit(void)
   }
 }
 
-#ifdef USE_WEBSERVER
-#ifdef PMS_MODEL_PMS3003
-const char HTTP_PMS3003_SNS[] PROGMEM =
-//  "{s}PMS3003 " D_STANDARD_CONCENTRATION " 1 " D_UNIT_MICROMETER "{m}%d " D_UNIT_MICROGRAM_PER_CUBIC_METER "{e}"
-//  "{s}PMS3003 " D_STANDARD_CONCENTRATION " 2.5 " D_UNIT_MICROMETER "{m}%d " D_UNIT_MICROGRAM_PER_CUBIC_METER "{e}"
-//  "{s}PMS3003 " D_STANDARD_CONCENTRATION " 10 " D_UNIT_MICROMETER "{m}%d " D_UNIT_MICROGRAM_PER_CUBIC_METER "{e}"
-  "{s}PMS3003 " D_ENVIRONMENTAL_CONCENTRATION " 1 " D_UNIT_MICROMETER "{m}%d " D_UNIT_MICROGRAM_PER_CUBIC_METER "{e}"
-  "{s}PMS3003 " D_ENVIRONMENTAL_CONCENTRATION " 2.5 " D_UNIT_MICROMETER "{m}%d " D_UNIT_MICROGRAM_PER_CUBIC_METER "{e}"
-  "{s}PMS3003 " D_ENVIRONMENTAL_CONCENTRATION " 10 " D_UNIT_MICROMETER "{m}%d " D_UNIT_MICROGRAM_PER_CUBIC_METER "{e}";
-#else
-const char HTTP_PMS5003_SNS[] PROGMEM =
-//  "{s}PMS5003 " D_STANDARD_CONCENTRATION " 1 " D_UNIT_MICROMETER "{m}%d " D_UNIT_MICROGRAM_PER_CUBIC_METER "{e}"
-//  "{s}PMS5003 " D_STANDARD_CONCENTRATION " 2.5 " D_UNIT_MICROMETER "{m}%d " D_UNIT_MICROGRAM_PER_CUBIC_METER "{e}"
-//  "{s}PMS5003 " D_STANDARD_CONCENTRATION " 10 " D_UNIT_MICROMETER "{m}%d " D_UNIT_MICROGRAM_PER_CUBIC_METER "{e}"
-  "{s}PMS5003 " D_ENVIRONMENTAL_CONCENTRATION " 1 " D_UNIT_MICROMETER "{m}%d " D_UNIT_MICROGRAM_PER_CUBIC_METER "{e}"
-  "{s}PMS5003 " D_ENVIRONMENTAL_CONCENTRATION " 2.5 " D_UNIT_MICROMETER "{m}%d " D_UNIT_MICROGRAM_PER_CUBIC_METER "{e}"
-  "{s}PMS5003 " D_ENVIRONMENTAL_CONCENTRATION " 10 " D_UNIT_MICROMETER "{m}%d " D_UNIT_MICROGRAM_PER_CUBIC_METER "{e}"
-  "{s}PMS5003 " D_PARTICALS_BEYOND " 0.3 " D_UNIT_MICROMETER "{m}%d " D_UNIT_PARTS_PER_DECILITER "{e}"
-  "{s}PMS5003 " D_PARTICALS_BEYOND " 0.5 " D_UNIT_MICROMETER "{m}%d " D_UNIT_PARTS_PER_DECILITER "{e}"
-  "{s}PMS5003 " D_PARTICALS_BEYOND " 1 " D_UNIT_MICROMETER "{m}%d " D_UNIT_PARTS_PER_DECILITER "{e}"
-  "{s}PMS5003 " D_PARTICALS_BEYOND " 2.5 " D_UNIT_MICROMETER "{m}%d " D_UNIT_PARTS_PER_DECILITER "{e}"
-  "{s}PMS5003 " D_PARTICALS_BEYOND " 5 " D_UNIT_MICROMETER "{m}%d " D_UNIT_PARTS_PER_DECILITER "{e}"
-  "{s}PMS5003 " D_PARTICALS_BEYOND " 10 " D_UNIT_MICROMETER "{m}%d " D_UNIT_PARTS_PER_DECILITER "{e}";      // {s} = <tr><th>, {m} = </th><td>, {e} = </td></tr>
-#endif  // PMS_MODEL_PMS3003
-#endif  // USE_WEBSERVER
-
-void PmsShow(bool json)
-{
+void PmsShow(bool json) {
   if (Pms.valid) {
-    if (json) {
+    char types[10];
 #ifdef PMS_MODEL_PMS3003
-      ResponseAppend_P(PSTR(",\"PMS3003\":{\"CF1\":%d,\"CF2.5\":%d,\"CF10\":%d,\"PM1\":%d,\"PM2.5\":%d,\"PM10\":%d}"),
+    strcpy_P(types, PSTR("PMS3003"));
+#elif defined(PMS_MODEL_PMS5003T)
+    strcpy_P(types, PSTR("PMS5003T"));
+#else
+    strcpy_P(types, PSTR("PMS5003"));
+#endif
+
+#ifdef PMS_MODEL_PMS5003T
+    float temperature = ConvertTemp(pms_data.temperature10x/10.0);
+    float humidity = ConvertHumidity(pms_data.humidity10x/10.0);
+#endif // PMS_MODEL_PMS5003T
+
+    if (json) {
+      ResponseAppend_P(PSTR(",\"%s\":{\"CF1\":%d,\"CF2.5\":%d,\"CF10\":%d,\"PM1\":%d,\"PM2.5\":%d,\"PM10\":%d"),
+        types,
         pms_data.pm10_standard, pms_data.pm25_standard, pms_data.pm100_standard,
         pms_data.pm10_env, pms_data.pm25_env, pms_data.pm100_env);
+#ifndef PMS_MODEL_PMS3003
+      ResponseAppend_P(PSTR(",\"PB0.3\":%d,\"PB0.5\":%d,\"PB1\":%d,\"PB2.5\":%d,"),
+        pms_data.particles_03um, pms_data.particles_05um, pms_data.particles_10um, pms_data.particles_25um);
+#ifdef PMS_MODEL_PMS5003T
+      ResponseAppendTHD(temperature, humidity);
 #else
-      ResponseAppend_P(PSTR(",\"PMS5003\":{\"CF1\":%d,\"CF2.5\":%d,\"CF10\":%d,\"PM1\":%d,\"PM2.5\":%d,\"PM10\":%d,\"PB0.3\":%d,\"PB0.5\":%d,\"PB1\":%d,\"PB2.5\":%d,\"PB5\":%d,\"PB10\":%d}"),
-        pms_data.pm10_standard, pms_data.pm25_standard, pms_data.pm100_standard,
-        pms_data.pm10_env, pms_data.pm25_env, pms_data.pm100_env,
-        pms_data.particles_03um, pms_data.particles_05um, pms_data.particles_10um, pms_data.particles_25um, pms_data.particles_50um, pms_data.particles_100um);
-#endif  // PMS_MODEL_PMS3003
+      ResponseAppend_P(PSTR("\"PB5\":%d,\"PB10\":%d"),
+        pms_data.particles_50um, pms_data.particles_100um);
+#endif  // PMS_MODEL_PMS5003T
+#endif  // No PMS_MODEL_PMS3003
+      ResponseJsonEnd();
+
 #ifdef USE_DOMOTICZ
       if (0 == TasmotaGlobal.tele_period) {
         DomoticzSensor(DZ_COUNT, pms_data.pm10_env);     // PM1
@@ -317,17 +315,24 @@ void PmsShow(bool json)
 #endif  // USE_DOMOTICZ
 #ifdef USE_WEBSERVER
     } else {
-
-#ifdef PMS_MODEL_PMS3003
-        WSContentSend_PD(HTTP_PMS3003_SNS,
-//        pms_data.pm10_standard, pms_data.pm25_standard, pms_data.pm100_standard,
-        pms_data.pm10_env, pms_data.pm25_env, pms_data.pm100_env);
+//      WSContentSend_PD(HTTP_SNS_STANDARD_CONCENTRATION, types, "1", pms_data.pm10_standard);
+//      WSContentSend_PD(HTTP_SNS_STANDARD_CONCENTRATION, types, "2.5", pms_data.pm25_standard);
+//      WSContentSend_PD(HTTP_SNS_STANDARD_CONCENTRATION, types, "10", pms_data.pm100_standard);
+      WSContentSend_PD(HTTP_SNS_ENVIRONMENTAL_CONCENTRATION, types, "1", pms_data.pm10_env);
+      WSContentSend_PD(HTTP_SNS_ENVIRONMENTAL_CONCENTRATION, types, "2.5", pms_data.pm25_env);
+      WSContentSend_PD(HTTP_SNS_ENVIRONMENTAL_CONCENTRATION, types, "10", pms_data.pm100_env);
+#ifndef PMS_MODEL_PMS3003
+      WSContentSend_PD(HTTP_SNS_PARTICALS_BEYOND, types, "0.3", pms_data.particles_03um);
+      WSContentSend_PD(HTTP_SNS_PARTICALS_BEYOND, types, "0.5", pms_data.particles_05um);
+      WSContentSend_PD(HTTP_SNS_PARTICALS_BEYOND, types, "1", pms_data.particles_10um);
+      WSContentSend_PD(HTTP_SNS_PARTICALS_BEYOND, types, "2.5", pms_data.particles_25um);
+#ifdef PMS_MODEL_PMS5003T
+      WSContentSend_THD(types, temperature, humidity);
 #else
-        WSContentSend_PD(HTTP_PMS5003_SNS,
-//        pms_data.pm10_standard, pms_data.pm25_standard, pms_data.pm100_standard,
-        pms_data.pm10_env, pms_data.pm25_env, pms_data.pm100_env,
-        pms_data.particles_03um, pms_data.particles_05um, pms_data.particles_10um, pms_data.particles_25um, pms_data.particles_50um, pms_data.particles_100um);
-#endif  // PMS_MODEL_PMS3003
+      WSContentSend_PD(HTTP_SNS_PARTICALS_BEYOND, types, "5", pms_data.particles_50um);
+      WSContentSend_PD(HTTP_SNS_PARTICALS_BEYOND, types, "10", pms_data.particles_100um);
+#endif  // PMS_MODEL_PMS5003T
+#endif  // No PMS_MODEL_PMS3003
 #endif  // USE_WEBSERVER
     }
   }
@@ -337,7 +342,7 @@ void PmsShow(bool json)
  * Interface
 \*********************************************************************************************/
 
-bool Xsns18(uint8_t function)
+bool Xsns18(uint32_t function)
 {
   bool result = false;
 

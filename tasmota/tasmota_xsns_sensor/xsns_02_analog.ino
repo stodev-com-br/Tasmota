@@ -24,6 +24,12 @@
 
 #define XSNS_02                       2
 
+#ifdef ESP32
+  #if ESP_IDF_VERSION_MAJOR >= 5
+    #include "esp32-hal-adc.h"
+  #endif
+#endif
+
 #ifdef ESP8266
 #define ANALOG_RESOLUTION             10               // 12 = 4095, 11 = 2047, 10 = 1023
 #define ANALOG_RANGE                  1023             // 4095 = 12, 2047 = 11, 1023 = 10
@@ -45,10 +51,14 @@
 #define ANALOG_V33                    3.3              // ESP8266 / ESP32 Analog voltage
 #define ANALOG_T0                     TO_KELVIN(25.0)  // 25 degrees Celsius in Kelvin (= 298.15)
 
-// Shelly 2.5 NTC Thermistor
+// Mode 0 : Shelly 2.5 NTC Thermistor
 // 3V3 --- ANALOG_NTC_BRIDGE_RESISTANCE ---v--- NTC --- Gnd
 //                                         |
 //                                        ADC0
+// Mode 1 : NTC towards 3V3 (Sinilink Thermostat Relay Board (XY-WFT1)
+// 3V3 --- NTC ---v--- ANALOG_NTC_BRIDGE_RESISTANCE --- Gnd
+//                |
+//               ADC0
 #define ANALOG_NTC_BRIDGE_RESISTANCE  32000            // NTC Voltage bridge resistor
 #define ANALOG_NTC_RESISTANCE         10000            // NTC Resistance
 #define ANALOG_NTC_B_COEFFICIENT      3350             // NTC Beta Coefficient
@@ -112,7 +122,7 @@
 #define ANALOG_PH_DECIMAL_MULTIPLIER              100.0
 
 // MQ-X sensor (MQ-02, MQ-03, MQ-04, MQ-05, MQ-06, MQ-07, MQ-08, MQ-09, MQ-131, MQ-135)
-//         
+//
 // A0  -------------------
 //                        |
 // GND -----------        |
@@ -121,7 +131,7 @@
 //        |       |       |
 //       3V3     GND     ADC  <- (A0 for nodemcu, wemos; GPIO34,35,36,39 and other analog IN/OUT pin for esp32)
 //means mq type (ex for mq-02 use 2, mq-131 use 131)
-#define ANALOG_MQ_TYPE                            2 
+#define ANALOG_MQ_TYPE                            2
 //exponential regression a params
 #define ANALOG_MQ_A                               574.25
 //exponential regression b params
@@ -134,13 +144,13 @@
   CO     | 521853 | -3.821
   Alcohol| 0.3934 | -1.504
   Benzene| 4.8387 | -2.68
-  Hexane | 7585.3 | -2.849  
+  Hexane | 7585.3 | -2.849
   NOx    | -462.43 | -2.204
   CL2    | 47.209 | -1.186
   O3     | 23.943 | -1.11
 */
 //ratio for alarm, NOT USED yet (RS / R0 = 15 ppm)
-#define ANALOG_MQ_RatioMQCleanAir                 15.0        
+#define ANALOG_MQ_RatioMQCleanAir                 15.0
 // Multiplier used to store pH with 2 decimal places in a non decimal datatype
 #define ANALOG_MQ_DECIMAL_MULTIPLIER              100.0
 // lenght of filter
@@ -171,6 +181,11 @@ struct {
 bool adcAttachPin(uint8_t pin) {
   return (ADC0_PIN == pin);
 }
+#endif
+#if defined(ESP32) && (ESP_IDF_VERSION_MAJOR >= 5)
+  bool adcAttachPin(uint8_t pin) {
+    return true;                        // TODO - no more needed?
+  }
 #endif
 
 void AdcSaveSettings(uint32_t idx) {
@@ -203,6 +218,7 @@ void AdcInitParams(uint8_t idx) {
       Adc[idx].param1 = ANALOG_NTC_BRIDGE_RESISTANCE;
       Adc[idx].param2 = ANALOG_NTC_RESISTANCE;
       Adc[idx].param3 = ANALOG_NTC_B_COEFFICIENT * 10000;
+      Adc[idx].param4 = 0; // Default to Shelly mode with NTC towards GND
     }
     else if (ADC_LIGHT == Adc[idx].type) {
       Adc[idx].param1 = ANALOG_LDR_BRIDGE_RESISTANCE;
@@ -292,7 +308,9 @@ void AdcInit(void) {
 
   if (Adcs.present) {
 #ifdef ESP32
+#if ESP_IDF_VERSION_MAJOR < 5
     analogSetClockDiv(1);               // Default 1
+#endif
 #if CONFIG_IDF_TARGET_ESP32
     analogSetWidth(ANALOG_RESOLUTION);  // Default 12 bits (0 - 4095)
 #endif  // CONFIG_IDF_TARGET_ESP32
@@ -312,6 +330,8 @@ uint16_t AdcRead(uint32_t pin, uint32_t factor) {
   // factor 3 = 8 samples
   // factor 4 = 16 samples
   // factor 5 = 32 samples
+  SystemBusyDelayExecute();
+
   uint32_t samples = 1 << factor;
   uint32_t analog = 0;
   for (uint32_t i = 0; i < samples; i++) {
@@ -381,45 +401,54 @@ uint16_t AdcGetLux(uint32_t idx) {
 }
 
 void AddSampleMq(uint32_t idx){
-  AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_APPLICATION "Adding sample for mq-sensor"));
+//  AddLog(LOG_LEVEL_DEBUG, PSTR("ADC: Adding sample for mq-sensor"));
+
   int _adc = AdcRead(Adc[idx].pin, 2);
   // init af array at same value
-  if (Adc[idx].indexOfPointer==-1)
-  {
-    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_APPLICATION "Init samples for mq-sensor"));
-    for (int i = 0; i < ANALOG_MQ_SAMPLES; i ++) 
+  if (Adc[idx].indexOfPointer==-1) {
+
+//    AddLog(LOG_LEVEL_DEBUG, PSTR("ADC: Init samples for mq-sensor"));
+
+    for (int i = 0; i < ANALOG_MQ_SAMPLES; i ++) {
       Adc[idx].mq_samples[i] = _adc;
-  }
-  else
+    }
+  } else {
     Adc[idx].mq_samples[Adc[idx].indexOfPointer] = _adc;
+  }
   Adc[idx].indexOfPointer++;
-  if (Adc[idx].indexOfPointer==ANALOG_MQ_SAMPLES)
+  if (Adc[idx].indexOfPointer==ANALOG_MQ_SAMPLES) {
     Adc[idx].indexOfPointer=0;
+  }
 }
 
 float AdcGetMq(uint32_t idx) {
-  AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_APPLICATION "Getting value for mq-sensor"));
-  float avg = 0.0;
-  float _RL = 10; //Value in KiloOhms
-  float _R0 = 10;
-  for (int i = 0; i < ANALOG_MQ_SAMPLES; i ++) 
-    avg += Adc[idx].mq_samples[i];
-  float voltage = (avg / ANALOG_MQ_SAMPLES) * ANALOG_V33 / ((FastPrecisePow(2, ANALOG_RESOLUTION)) - 1);
+//  AddLog(LOG_LEVEL_DEBUG, PSTR("ADC: Getting value for mq-sensor"));
 
-  float _RS_Calc = ((ANALOG_V33 * _RL) / voltage) -_RL; //Get value of RS in a gas
-  if (_RS_Calc < 0)  _RS_Calc = 0; //No negative values accepted.
-  float _ratio = _RS_Calc / _R0;   // Get ratio RS_gas/RS_air
-  float ppm= Adc[idx].param2/ANALOG_MQ_DECIMAL_MULTIPLIER*FastPrecisePow(_ratio, Adc[idx].param3/ANALOG_MQ_DECIMAL_MULTIPLIER); // <- Source excel analisis https://github.com/miguel5612/MQSensorsLib_Docs/tree/master/Internal_design_documents
-  if(ppm < 0)  ppm = 0; //No negative values accepted or upper datasheet recomendation.
-  char ppm_chr[6];
-  dtostrfd(ppm, 2, ppm_chr);
-  AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_APPLICATION "Ppm read. ADC-RAW: %2_f, ppm: %s,"), &voltage, ppm_chr);
+  float avg = 0.0;
+  for (int i = 0; i < ANALOG_MQ_SAMPLES; i ++) {
+    avg += Adc[idx].mq_samples[i];
+  }
+  float voltage = (avg / ANALOG_MQ_SAMPLES) * ANALOG_V33 / ANALOG_RANGE;
+
+  float _RL = 10;                                        // Value in KiloOhms
+  float _RS_Calc = ((ANALOG_V33 * _RL) / voltage) -_RL;  // Get value of RS in a gas
+  if (_RS_Calc < 0) {
+    _RS_Calc = 0;                                        // No negative values accepted.
+  }
+
+  float _R0 = 10;
+  float _ratio = _RS_Calc / _R0;                         // Get ratio RS_gas/RS_air
+  float ppm = Adc[idx].param2 / ANALOG_MQ_DECIMAL_MULTIPLIER * FastPrecisePow(_ratio, Adc[idx].param3 / ANALOG_MQ_DECIMAL_MULTIPLIER);  // Source excel analisis https://github.com/miguel5612/MQSensorsLib_Docs/tree/master/Internal_design_documents
+  if (ppm < 0) { ppm = 0; }                              // No negative values accepted or upper datasheet recomendation.
+  if (ppm > 100000) { ppm = 100000; }
+
+//  AddLog(LOG_LEVEL_DEBUG, PSTR("ADC: Ppm read. ADC-RAW: %2_f, ppm: %2_f"), &voltage, &ppm);
+
   return ppm;
 }
 
 float AdcGetPh(uint32_t idx) {
   int adc = AdcRead(Adc[idx].pin, 2);
-
 
   float y1 = (float)Adc[idx].param1 / ANALOG_PH_DECIMAL_MULTIPLIER;
   int32_t x1 = Adc[idx].param2;
@@ -429,12 +458,7 @@ float AdcGetPh(uint32_t idx) {
   float m = (y2 - y1) / (float)(x2 - x1);
   float ph = m * (float)(adc - x1) + y1;
 
-
-  char phLow_chr[6];
-  char phHigh_chr[6];
-  dtostrfd(y1, 2, phLow_chr);
-  dtostrfd(y2, 2, phHigh_chr);
-  AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_APPLICATION "Analog pH read. ADC-RAW: %d, cal-low(pH=ADC): %s=%d, cal-high(pH=ADC): %s=%d"), adc, phLow_chr, x1, phHigh_chr,x2);
+//  AddLog(LOG_LEVEL_DEBUG, PSTR("ADC: Analog pH read. ADC-RAW: %d, cal-low(pH=ADC): %2_f = %d, cal-high(pH=ADC): %2_f = %d"), adc, &y1, x1, &y2, x2);
 
   return ph;
 }
@@ -443,7 +467,7 @@ float AdcGetRange(uint32_t idx) {
   // formula for calibration: value, fromLow, fromHigh, toLow, toHigh
   // Example: 514, 632, 236, 0, 100
   // int( ((<param2> - <analog-value>) / (<param2> - <param1>) ) * (<param3> - <param4>) ) + <param4> )
-  int adc = AdcRead(Adc[idx].pin, 2);
+  int adc = AdcRead(Adc[idx].pin, 5);
   double adcrange = ( ((double)Adc[idx].param2 - (double)adc) / ( ((double)Adc[idx].param2 - (double)Adc[idx].param1)) * ((double)Adc[idx].param3 - (double)Adc[idx].param4) + (double)Adc[idx].param4 );
   return (float)adcrange;
 }
@@ -460,7 +484,8 @@ void AdcGetCurrentPower(uint8_t idx, uint8_t factor) {
   uint16_t analog_max = 0;
 
   if (0 == Adc[idx].param1) {
-    for (uint32_t i = 0; i < samples; i++) {
+    unsigned long tstart=millis();
+    while (millis()-tstart < 35) {
       analog = analogRead(Adc[idx].pin);
       if (analog < analog_min) {
         analog_min = analog;
@@ -468,9 +493,11 @@ void AdcGetCurrentPower(uint8_t idx, uint8_t factor) {
       if (analog > analog_max) {
         analog_max = analog;
       }
-      delay(1);
     }
+    //AddLog(0, PSTR("min: %u, max:%u, dif:%u"), analog_min, analog_max, analog_max-analog_min);
     Adc[idx].current = (float)(analog_max-analog_min) * ((float)(Adc[idx].param2) / 100000);
+    if (Adc[idx].current < (((float)Adc[idx].param4) / 10000.0))
+        Adc[idx].current = 0.0;
   }
   else {
     analog = AdcRead(Adc[idx].pin, 5);
@@ -496,10 +523,19 @@ void AdcEverySecond(void) {
       // double Rt = (adc * Adc[idx].param1 * MAX_ADC_V) / (ANALOG_RANGE * ANALOG_V33 - (double)adc * MAX_ADC_V);
       // MAX_ADC_V in ESP8266 is 1
       // MAX_ADC_V in ESP32 is 3.3
+      double Rt;
 #ifdef ESP8266
-      double Rt = (adc * Adc[idx].param1) / (ANALOG_RANGE * ANALOG_V33 - (double)adc);  // Shelly param1 = 32000 (ANALOG_NTC_BRIDGE_RESISTANCE)
+      if (Adc[idx].param4) { // Alternate mode
+        Rt = (double)Adc[idx].param1 * (ANALOG_RANGE * ANALOG_V33 - (double)adc) / (double)adc;
+      } else {
+        Rt = (double)Adc[idx].param1 * (double)adc / (ANALOG_RANGE * ANALOG_V33 - (double)adc);
+      }
 #else
-      double Rt = (adc * Adc[idx].param1) / (ANALOG_RANGE - (double)adc);
+      if (Adc[idx].param4) { // Alternate mode
+        Rt = (double)Adc[idx].param1 * (ANALOG_RANGE - (double)adc) / (double)adc;
+      } else {
+        Rt = (double)Adc[idx].param1 * (double)adc / (ANALOG_RANGE - (double)adc);
+      }
 #endif
       double BC = (double)Adc[idx].param3 / 10000;                                      // Shelly param3 = 3350 (ANALOG_NTC_B_COEFFICIENT)
       double T = BC / (BC / ANALOG_T0 + TaylorLog(Rt / (double)Adc[idx].param2));       // Shelly param2 = 10000 (ANALOG_NTC_RESISTANCE)
@@ -652,9 +688,8 @@ void AdcShow(bool json) {
       }
       case ADC_PH: {
         float ph = AdcGetPh(idx);
-        char ph_chr[6];
+        char ph_chr[FLOATSZ];
         dtostrfd(ph, 2, ph_chr);
-
 
         if (json) {
           AdcShowContinuation(&jsonflg);
@@ -668,11 +703,11 @@ void AdcShow(bool json) {
       }
       case ADC_MQ: {
         float mq = AdcGetMq(idx);
-        char mq_chr[6];
+        char mq_chr[FLOATSZ];
         dtostrfd(mq, 2, mq_chr);
 
         float mqnumber =Adc[idx].param1;
-        char mqnumber_chr[6];
+        char mqnumber_chr[FLOATSZ];
         dtostrfd(mqnumber, 0, mqnumber_chr);
 
         if (json) {
@@ -710,7 +745,8 @@ void CmndAdcParam(void) {
         AdcGetSettings(idx);
         if (ArgC() > 3) {  // Process parameter entry
           char argument[XdrvMailbox.data_len];
-          // AdcParam 2, 32000, 10000, 3350
+          // AdcParam 2, 32000, 10000, 3350        ADC_TEMP Shelly mode
+          // AdcParam 2, 32000, 10000, 3350, 1     ADC_TEMP Alternate mode
           // AdcParam 3, 10000, 12518931, -1.405
           // AdcParam 4, 128, 0, 0
           // AdcParam 5, 128, 0, 0
@@ -725,6 +761,12 @@ void CmndAdcParam(void) {
             Adc[idx].param4 = abs(strtol(ArgV(argument, 5), nullptr, 10));
           } else {
             Adc[idx].param3 = (int)(CharToFloat(ArgV(argument, 4)) * 10000);
+            if (ArgC() > 4) {
+              Adc[idx].param4 = (int)(CharToFloat(ArgV(argument, 5)) * 10000);
+            }
+            else{
+              Adc[idx].param4 = 0;
+            }
           }
           if (ADC_PH == XdrvMailbox.payload) {
             float phLow = CharToFloat(ArgV(argument, 2));
@@ -733,8 +775,8 @@ void CmndAdcParam(void) {
             Adc[idx].param2 = strtol(ArgV(argument, 3), nullptr, 10);
             Adc[idx].param3 = phHigh * ANALOG_PH_DECIMAL_MULTIPLIER;
             Adc[idx].param4 = strtol(ArgV(argument, 5), nullptr, 10);
-            AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_APPLICATION "Analog pH probe calibrated. cal-low(pH=ADC) %2_f=%d, cal-high(pH=ADC) %2_f=%d"),
-              &phLow, Adc[idx].param2, &phHigh, Adc[idx].param4);
+
+//            AddLog(LOG_LEVEL_INFO, PSTR("ADC: Analog pH probe calibrated. cal-low(pH=ADC) %2_f = %d, cal-high(pH=ADC) %2_f = %d"), &phLow, Adc[idx].param2, &phHigh, Adc[idx].param4);
           }
           if (ADC_CT_POWER == XdrvMailbox.payload) {
             if (((1 == Adc[idx].param1) & CT_FLAG_ENERGY_RESET) > 0) {
@@ -775,11 +817,11 @@ void CmndAdcParam(void) {
                 ratioMQCleanAir=15;
               }
             }
-            Adc[idx].param2 = (int)(a * ANALOG_MQ_DECIMAL_MULTIPLIER);                       // Exponential regression
-            Adc[idx].param3 = (int)(b * ANALOG_MQ_DECIMAL_MULTIPLIER);                      // Exponential regression
-            Adc[idx].param4 = (int)(ratioMQCleanAir * ANALOG_MQ_DECIMAL_MULTIPLIER);                      // Exponential regression
-            AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_APPLICATION "Analog MQ reset: mq%d, a=%2_f, b=%2_f, ratioMQCleanAir=%2_f"),
-              Adc[idx].param1, &a, &b, &ratioMQCleanAir);
+            Adc[idx].param2 = (int)(a * ANALOG_MQ_DECIMAL_MULTIPLIER);                 // Exponential regression
+            Adc[idx].param3 = (int)(b * ANALOG_MQ_DECIMAL_MULTIPLIER);                 // Exponential regression
+            Adc[idx].param4 = (int)(ratioMQCleanAir * ANALOG_MQ_DECIMAL_MULTIPLIER);   // Exponential regression
+
+//            AddLog(LOG_LEVEL_INFO, PSTR("ADC: MQ reset mq%d, a = %2_f, b = %2_f, ratioMQCleanAir = %2_f"), Adc[idx].param1, &a, &b, &ratioMQCleanAir);
           }
         } else {                                         // Set default values based on current adc type
           // AdcParam 2
@@ -808,9 +850,15 @@ void CmndAdcParam(void) {
         if (value % 10) { break; }
         value /= 10;
       }
-      char param3[33];
+      char param3[FLOATSZ];
       dtostrfd(((double)Adc[idx].param3)/10000, precision, param3);
-      ResponseAppend_P(PSTR(",%s"), param3);
+      if (ADC_CT_POWER == Adc[idx].type) {
+        char param4[FLOATSZ];
+        dtostrfd(((double)Adc[idx].param4)/10000, 3, param4);
+        ResponseAppend_P(PSTR(",%s,%s"), param3, param4);
+      } else {
+        ResponseAppend_P(PSTR(",%s,%d"), param3, Adc[idx].param4);
+      }
     }
     ResponseAppend_P(PSTR("]}"));
   }
@@ -820,14 +868,14 @@ void CmndAdcParam(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xsns02(uint8_t function) {
+bool Xsns02(uint32_t function) {
   bool result = false;
 
   switch (function) {
     case FUNC_COMMAND:
       result = DecodeCommand(kAdcCommands, AdcCommand);
       break;
-    case FUNC_MODULE_INIT:
+    case FUNC_SETUP_RING2:
       AdcInit();
       break;
     default:

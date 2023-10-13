@@ -22,10 +22,13 @@ var classes = [
   "bar", "slider", "arc", "textarea", "dropdown",
   "qrcode"
 ]
+var f = open("haspmota.c", "w")
 for c:classes
-  solidify.dump(haspmota.HASPmota.("lvh_"+c), true)
+  solidify.dump(haspmota.HASPmota.("lvh_"+c), true, f)
 end
-solidify.dump(haspmota, true)
+solidify.dump(haspmota, true, f)
+f.close()
+print("Ok")
 
 -#
 var haspmota = module("haspmota")
@@ -135,6 +138,7 @@ class lvh_obj
     # "text_rule": nil,
     # "text_rule_formula": nil,
     # "text_rule_format": nil,
+    # "meta": nil,
     # roller
     # "options": nil,
     # qrcode
@@ -151,6 +155,7 @@ class lvh_obj
   var _lv_label                             # sub-label if exists
   var _page                                 # parent page object
   var _action                               # value of the HASPmota `action` attribute, shouldn't be called `self.action` since we want to trigger the set/member functions
+  var _meta                                 # free form metadata
 
   #====================================================================
   # Rule engine to map value and text to rules
@@ -332,24 +337,23 @@ class lvh_obj
 
     var event_hasp = self._event_map.find(code)
     if event_hasp != nil
-      import string
+      import json
 
       var tas_event_more = ""   # complementary data
       if event.code == lv.EVENT_VALUE_CHANGED
         try
           # try to get the new val
           var val = self.val
-          if val != nil   tas_event_more = string.format(',"val":%i', val) end
+          if val != nil   tas_event_more = format(',"val":%s', json.dump(val)) end
           var text = self.text
           if text != nil
-            import json
             tas_event_more += ',"text":'
             tas_event_more += json.dump(text)
           end
         except ..
         end
       end
-      var tas_event = string.format('{"hasp":{"p%ib%i":{"event":"%s"%s}}}', self._page._page_id, self.id, event_hasp, tas_event_more)
+      var tas_event = format('{"hasp":{"p%ib%i":{"event":"%s"%s}}}', self._page._page_id, self.id, event_hasp, tas_event_more)
       # print("val=",val)
       tasmota.set_timer(0, /-> tasmota.publish_rule(tas_event))
     end
@@ -407,10 +411,12 @@ class lvh_obj
   #  `toggle` attributes mapped to STATE_CHECKED
   #====================================================================
   def set_toggle(t)
-    import string
-    t = string.toupper(str(t))
-    if t == "TRUE"  t = true end
-    if t == "FALSE" t = false end
+    if type(t) == 'string'
+      t = string.toupper(str(t))
+      if   t == "TRUE"  t = true
+      elif t == "FALSE" t = false
+      end
+    end
     if t
       self._lv_obj.add_state(lv.STATE_CHECKED)
     else
@@ -529,20 +535,35 @@ class lvh_obj
       end
     elif type(t) == 'string'
       import string
+      import re
       # look for 'A:name.font' style font file name
       var drive_split = string.split(t, ':', 1)
       var fn_split = string.split(t, '-')
-      if size(drive_split) > 1 && size(drive_split[0]) == 1
+
+      var name = t
+      var sz = 0
+      var is_ttf = false
+      var is_binary = (size(drive_split) > 1 && size(drive_split[0]))
+
+      if size(fn_split) >= 2
+        sz = int(fn_split[-1])
+        name = fn_split[0..-2].concat('-')    # rebuild the font name
+      end
+      if re.match(".*\\.ttf$", name)
+        # ttf font
+        name = string.split(name, ':')[-1]      # remove A: if any
+        is_ttf = true
+      end
+
+      if is_ttf
+        font = lv.load_freetype_font(name, sz, 0)
+      elif is_binary
         # font is from disk
         font = lv.load_font(t)
-      elif size(fn_split) >= 2      # it does contain '-'
-        var sz = int(fn_split[-1])
-        var name = fn_split[0..-2].concat('-')    # rebuild the font name
-        if sz > 0 && size(name) > 0              # looks good, let's have a try
-          try
-            font = lv.font_embedded(name, sz)
-          except ..
-          end
+      elif sz > 0 && size(name) > 0              # looks good, let's have a try
+        try
+          font = lv.font_embedded(name, sz)
+        except ..
         end
       end
     end
@@ -738,11 +759,15 @@ class lvh_obj
       end
       # print("f=", f, v, kv, self._lv_obj, self)
       if type(f) == 'function'
-        if string.find(kv, "style_") == 0
-          # style function need a selector as second parameter
-          f(self._lv_obj, v, 0 #- lv.PART_MAIN | lv.STATE_DEFAULT -#)
-        else
-          f(self._lv_obj, v)
+        try
+          if string.find(kv, "style_") == 0
+            # style function need a selector as second parameter
+            f(self._lv_obj, v, 0 #- lv.PART_MAIN | lv.STATE_DEFAULT -#)
+          else
+            f(self._lv_obj, v)
+          end
+        except .. as e, m
+          raise e, m + " for " + k
         end
         return
       else
@@ -754,13 +779,24 @@ class lvh_obj
   end
 
   #====================================================================
+  #  Metadata
+  #
+  #====================================================================
+  def set_meta(t)
+    self._meta = t
+  end
+  def get_meta()
+    return self._meta
+  end
+
+  #====================================================================
   #  Rule based updates of `val` and `text`
   #
   # `val_rule`: rule pattern to grab a value, ex: `ESP32#Temperature`
   # `val_rule_formula`: formula in Berry to transform the value
   #                     Ex: `val * 10`
   # `text_rule`: rule pattern to grab a value for text, ex: `ESP32#Temparature`
-  # `text_rule_format`: format used by `string.format()`
+  # `text_rule_format`: format used by `format()`
   #                     Ex: `%.1f °C`
   #====================================================================
   def set_val_rule(t)
@@ -802,8 +838,7 @@ class lvh_obj
       var func = compile(code)
       self._val_rule_function = func()
     except .. as e, m
-      import string
-      print(string.format("HSP: failed to compile '%s' - %s (%s)", code, e, m))
+      print(format("HSP: failed to compile '%s' - %s (%s)", code, e, m))
     end
   end
   def get_val_rule_formula()
@@ -817,8 +852,7 @@ class lvh_obj
       var func = compile(code)
       self._text_rule_function = func()
     except .. as e, m
-      import string
-      print(string.format("HSP: failed to compile '%s' - %s (%s)", code, e, m))
+      print(format("HSP: failed to compile '%s' - %s (%s)", code, e, m))
     end
   end
   def get_text_rule_formula()
@@ -829,13 +863,13 @@ class lvh_obj
 
     # print(">> rule matched", "val=", val)
     var val_n = real(val)         # force float type
+    if val_n == nil  return false end   # if the matched value is not a number, ignore
     var func = self._val_rule_function
     if func != nil
       try
         val_n = func(val_n)
       except .. as e, m
-        import string
-        print(string.format("HSP: failed to run self._val_rule_function - %s (%s)", e, m))
+        print(format("HSP: failed to run self._val_rule_function - %s (%s)", e, m))
       end
     end
 
@@ -855,15 +889,13 @@ class lvh_obj
       try
         val = func(val)
       except .. as e, m
-        import string
-        print(string.format("HSP: failed to run self._text_rule_function - %s (%s)", e, m))
+        print(format("HSP: failed to run self._text_rule_function - %s (%s)", e, m))
       end
     end
 
     var format = self._text_rule_format
     if type(format) == 'string'
-      import string
-      format = string.format(format, val)
+      format = format(format, val)
     else
       format = ""
     end
@@ -945,6 +977,31 @@ end
 class lvh_switch : lvh_obj
   static _lv_class = lv.switch
   static _lv_part2_selector = lv.PART_KNOB
+  # map val to toggle
+  def set_val(t)
+    return self.set_toggle(t)
+  end
+  def get_val()
+    return self.get_toggle()
+  end
+  def set_bg_color10(t)
+    self._lv_obj.set_style_bg_color(self.parse_color(t), lv.PART_INDICATOR | lv.STATE_CHECKED)
+  end
+  def set_bg_color20(t)
+    self._lv_obj.set_style_bg_color(self.parse_color(t), lv.PART_KNOB | lv.STATE_DEFAULT)
+  end
+  def set_radius20(t)
+    self._lv_obj.set_style_radius(int(t), lv.PART_KNOB | lv.STATE_DEFAULT)
+  end
+  def get_bg_color10()
+    return self._lv_obj.get_style_bg_color(lv.PART_INDICATOR)
+  end
+  def get_bg_color20()
+    return self._lv_obj.get_style_bg_color(lv.PART_KNOB)
+  end
+  def get_radius20()
+    return self._lv_obj.get_style_radius(lv.PART_KNOB)
+  end
 end
 
 #====================================================================
@@ -952,6 +1009,7 @@ end
 #====================================================================
 class lvh_spinner : lvh_arc
   static _lv_class = lv.spinner
+  var _anim_start, _anim_end        # the two raw (lv_anim_ntv) objects used for the animation
 
   # init
   # - create the LVGL encapsulated object
@@ -963,13 +1021,30 @@ class lvh_spinner : lvh_arc
     var speed = jline.find("speed", 1000)
     self._lv_obj = lv.spinner(parent, speed, angle)
     self.post_init()
+    # do some black magic to get the two lv_anim objects used to animate the spinner
+    var anim_start = lv.anim_get(self._lv_obj, self._lv_obj._arc_anim_start_angle)
+    var anim_end = lv.anim_get(self._lv_obj, self._lv_obj._arc_anim_end_angle)
+    # convert to a ctype C structure via pointer
+    self._anim_start = lv.anim_ntv(anim_start._p)
+    self._anim_end = lv.anim_ntv(anim_end._p)
   end
 
-  # ignore attributes, spinner can't be changed once created
-  def set_angle(t) end
-  def get_angle() end
-  def set_speed(t) end
-  def get_speed() end
+  def set_angle(t)
+    t = int(t)
+    self._anim_end.start_value = t
+    self._anim_end.end_value = t + 360
+  end
+  def get_angle()
+    return self._anim_end.start_value - self._anim_start.start_value
+  end
+  def set_speed(t)
+    t = int(t)
+    self._anim_start.time = t
+    self._anim_end.time = t
+  end
+  def get_speed()
+    return self._anim_start.time
+  end
 end
 
 #====================================================================
@@ -1000,11 +1075,11 @@ class lvh_qrcode : lvh_obj
   def init(parent, page, jline)
     self._page = page
 
-    var size = jline.find("qr_size", 100)
+    var sz = jline.find("qr_size", 100)
     var dark_col = self.parse_color(jline.find("qr_dark_color", "#000000"))
     var light_col = self.parse_color(jline.find("qr_light_color", "#FFFFFF"))
 
-    self._lv_obj = lv.qrcode(parent, size, dark_col, light_col)
+    self._lv_obj = lv.qrcode(parent, sz, dark_col, light_col)
     self.post_init()
   end
 
@@ -1266,10 +1341,9 @@ class lvh_page
     end
 
     # send page events
-    import string
-    var event_str_in = string.format('{"hasp":{"p%i":"out"}}', self._oh.lvh_page_cur_idx)
+    var event_str_in = format('{"hasp":{"p%i":"out"}}', self._oh.lvh_page_cur_idx)
     tasmota.set_timer(0, /-> tasmota.publish_rule(event_str_in))
-    var event_str_out = string.format('{"hasp":{"p%i":"in"}}', self._page_id)
+    var event_str_out = format('{"hasp":{"p%i":"in"}}', self._page_id)
     tasmota.set_timer(0, /-> tasmota.publish_rule(event_str_out))
 
     # change current page
@@ -1646,7 +1720,6 @@ class HASPmota
   #====================================================================
   def parse_obj(jline, page)
     import global
-    import string
     import introspect
 
     var obj_id = int(jline.find("id"))        # id number or nil
@@ -1656,13 +1729,12 @@ class HASPmota
 
     # first run any Berry code embedded
     var berry_run = str(jline.find("berry_run"))
+    var func_compiled
     if berry_run != "nil"
       try
-        var func_compiled = compile(berry_run)
-        # run the compiled code once
-        func_compiled()
+        func_compiled = compile(berry_run)
       except .. as e,m
-        print(string.format("HSP: unable to run berry code \"%s\" - '%s' - %s", berry_run, e, m))
+        print(format("HSP: unable to compile berry code \"%s\" - '%s' - %s", berry_run, e, m))
       end
     end
 
@@ -1724,8 +1796,21 @@ class HASPmota
       lvh_page_cur.set_obj(obj_id, obj_lvh)
       
       # create a global variable for this object of form p<page>b<id>, ex p1b2
-      var glob_name = string.format("p%ib%i", lvh_page_cur.id(), obj_id)
+      var glob_name = format("p%ib%i", lvh_page_cur.id(), obj_id)
       global.(glob_name) = obj_lvh
+
+    end
+
+    if func_compiled != nil
+      try
+        # run the compiled code once
+        var f_ret = func_compiled()
+        if type(f_ret) == 'function'
+          f_ret(obj_lvh)
+        end
+      except .. as e,m
+        print(format("HSP: unable to run berry code \"%s\" - '%s' - %s", berry_run, e, m))
+      end
     end
 
     if obj_id == 0 && obj_type != "nil"

@@ -66,10 +66,28 @@ static void m_findmember_protected(bvm *vm, void* data)
 static int m_findmember(bvm *vm)
 {
     int top = be_top(vm);
-    if (top >= 2 && (be_isinstance(vm, 1) || be_ismodule(vm, 1) || be_isclass(vm, 1)) && be_isstring(vm, 2)) {
-        int ret = be_execprotected(vm, &m_findmember_protected, (void*) be_tostring(vm, 2));
-        if (ret == BE_OK) {
-            be_return(vm);
+    bbool protected = btrue; /* run protected, i.e. don't raise an exception if not found */
+    if (top >= 3) {
+        protected = !be_tobool(vm, 3);
+    }
+    if (top >= 2 && be_isstring(vm, 2)) {
+        if (protected) {
+            if (be_isinstance(vm, 1) || be_ismodule(vm, 1) || be_isclass(vm, 1)) {
+                int ret = be_execprotected(vm, &m_findmember_protected, (void*) be_tostring(vm, 2));
+                if (ret == BE_OK) {
+                    be_return(vm);
+                }
+            }
+            be_return_nil(vm);
+        } else {
+            /* run unprotected */
+            if (be_getmember(vm, 1, be_tostring(vm, 2))) {
+                be_return(vm);
+            } else {
+                /* not found, return module 'undefined' */
+                be_getmodule(vm, "undefined");
+                be_return(vm);
+            }
         }
     }
     be_return_nil(vm);
@@ -94,7 +112,7 @@ static int m_toptr(bvm *vm)
             be_pushcomptr(vm, var_toobj(v));
             be_return(vm);
         } else if (var_type(v) == BE_INT) {
-            be_pushcomptr(vm, (void*) var_toint(v));
+            be_pushcomptr(vm, (void*) (intptr_t) var_toint(v));
             be_return(vm);
         } else {
             be_raise(vm, "value_error", "unsupported for this type");
@@ -111,7 +129,7 @@ static int m_fromptr(bvm *vm)
         if (be_iscomptr(vm, 1)) {
             v = be_tocomptr(vm, 1);
         } else {
-            v = (void*) be_toint(vm, 1);
+            v = (void*) (intptr_t) be_toint(vm, 1);
         }
         if (v) {
             bgcobject *ptr = (bgcobject*)v;
@@ -143,6 +161,20 @@ static int m_getmodule(bvm *vm)
     be_return_nil(vm);
 }
 
+/* set or chang the cached value for the named module, this allows monkey patching. **USE WITH CARE** */
+static int m_setmodule(bvm *vm)
+{
+    int top = be_top(vm);
+    if (top >= 2) {
+        bvalue *v = be_indexof(vm, 1);
+        if (var_isstr(v)) {
+            be_pushvalue(vm, 2);  /* ensure the second arg is at top of stack */
+            be_cache_module(vm, var_tostr(v));
+        }
+    }
+    be_return_nil(vm);
+}
+
 /* checks if the function (berry bytecode bproto only) is hinted as a method */
 static int m_ismethod(bvm *vm)
 {
@@ -159,6 +191,31 @@ static int m_ismethod(bvm *vm)
     be_return_nil(vm);
 }
 
+static int m_name(bvm *vm)
+{
+    int top = be_top(vm);
+    if (top >= 1) {
+        bvalue *v = be_indexof(vm, 1);
+        const char* name = NULL;
+        switch (var_type(v)) {
+            case BE_CLOSURE:
+                name = str(((bclosure*) var_toobj(v))->proto->name);
+                break;
+            case BE_CLASS:
+                name = str(((bclass*) var_toobj(v))->name);
+                break;
+            case BE_MODULE:
+                name = be_module_name(var_toobj(v));
+                break;
+        }
+        if (name) {
+            be_pushstring(vm, name);
+            be_return(vm);
+        }
+    }
+    be_return_nil(vm);
+}
+
 #if !BE_USE_PRECOMPILED_OBJECT
 be_native_module_attr_table(introspect) {
     be_native_module_function("members", m_attrlist),
@@ -167,9 +224,12 @@ be_native_module_attr_table(introspect) {
     be_native_module_function("set", m_setmember),
 
     be_native_module_function("module", m_getmodule),
+    be_native_module_function("setmodule", m_setmodule),
 
     be_native_module_function("toptr", m_toptr),
     be_native_module_function("fromptr", m_fromptr),
+
+    be_native_module_function("name", m_name),
 
     be_native_module_function("ismethod", m_ismethod),
 };
@@ -184,9 +244,12 @@ module introspect (scope: global, depend: BE_USE_INTROSPECT_MODULE) {
     set, func(m_setmember)
 
     module, func(m_getmodule)
+    setmodule, func(m_setmodule)
 
     toptr, func(m_toptr)
     fromptr, func(m_fromptr)
+
+    name, func(m_name)
 
     ismethod, func(m_ismethod)
 }

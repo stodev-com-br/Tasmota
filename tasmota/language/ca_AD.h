@@ -51,12 +51,14 @@
 #define D_DECIMAL_SEPARATOR ","
 
 // Common
+#define D_ABSOLUTE_HUMIDITY "Abs Humidity"
 #define D_ADMIN "Admin"
 #define D_AIR_QUALITY "Qualitat Aire"
 #define D_AP "PA"                    // Access Point
 #define D_AS "com"
 #define D_AUTO "AUTO"
 #define D_BATT "Bat"                // Short for Battery
+#define D_BATTERY_CHARGE "Charge"  // Battery charge in %
 #define D_BLINK "Espurna"
 #define D_BLINKOFF "Espurna Fora"
 #define D_BOOT_COUNT "Compte Arrencs"
@@ -83,6 +85,9 @@
 #define D_DEBUG "Depuració"
 #define D_DEWPOINT "Punt de rossada"
 #define D_DISABLED "Deshabilitat"
+#define D_MOVING_DISTANCE "Moving Distance"
+#define D_STATIC_DISTANCE "Static Distance"
+#define D_DETECT_DISTANCE "Detect Distance"
 #define D_DISTANCE "Distancia"
 #define D_DNS_SERVER "Servidor DNS"
 #define D_DO "Oxígen dissolt"
@@ -100,6 +105,7 @@
 #define D_FALLBACK_TOPIC "Tema de recuperació"
 #define D_FALSE "Fals"
 #define D_FILE "Arxiu"
+#define D_FILE_SYSTEM_SIZE "File System Size"
 #define D_FLOW_RATE "Cabal"
 #define D_FRAGMENTATION "frag."      // Lower case abbreviated version of fragmentation used in "memory fragmentation"
 #define D_FRAME_RATE "Frame rate"
@@ -130,6 +136,7 @@
 #define D_MULTI_PRESS "multi-pressió"
 #define D_NOISE "Soroll"
 #define D_NONE "Cap"
+#define D_NOX "NOx"
 #define D_O2 "Oxygen"
 #define D_OFF "Apagat"
 #define D_OFFLINE "Desconnectat"
@@ -198,6 +205,7 @@
 #define D_UV_LEVEL "Nivell UV"
 #define D_UV_POWER "Potència UV"
 #define D_VERSION "Versió"
+#define D_VOC "VOC"
 #define D_VOLTAGE "Tensió"
 #define D_VOLUME "Volum"
 #define D_WEIGHT "Pes"
@@ -495,10 +503,12 @@
 #define D_ZIGBEE_GENERATE_KEY "generating random Zigbee network key"
 #define D_ZIGBEE_UNKNOWN_DEVICE "Unknown device"
 #define D_ZIGBEE_UNKNOWN_ATTRIBUTE "Unknown attribute"
+#define D_ZIGBEE_UNKNOWN_ENDPOINT "Unknown endpoint"
 #define D_ZIGBEE_INVALID_PARAM "Invalid parameter"
 #define D_ZIGBEE_MISSING_PARAM "Missing parameters"
 #define D_ZIGBEE_UNKNWON_ATTRIBUTE "Unknown attribute name (ignored): %s"
 #define D_ZIGBEE_TOO_MANY_CLUSTERS "No more than one cluster id per command"
+#define D_ZIGBEE_CONFLICTING_ENDPOINTS "Conflicting destination endpoints"
 #define D_ZIGBEE_WRONG_DELIMITER "Wrong delimiter for payload"
 #define D_ZIGBEE_UNRECOGNIZED_COMMAND "Unrecognized zigbee command: %s"
 #define D_ZIGBEE_TOO_MANY_COMMANDS "Only 1 command allowed (%d)"
@@ -508,6 +518,11 @@
 #define D_ZIGBEE_RESET_1_OR_2 "1 or 2 to reset"
 #define D_ZIGBEE_EEPROM_FOUND_AT_ADDRESS "ZBBridge EEPROM found at address"
 #define D_ZIGBEE_RANDOMIZING_ZBCONFIG "Randomizing Zigbee parameters, please check with 'ZbConfig'"
+
+// xdrv_89_dali.ino
+#define D_SENSOR_DALI_RX                  "Dali RX"
+#define D_SENSOR_DALI_TX                  "Dali TX"
+#define D_CONFIGURE_DALI                  "Config DALI"
 
 // xdrv_03_energy.ino
 #define D_ENERGY_TODAY "Energy Today"
@@ -563,6 +578,12 @@
 #define D_GX_AXIS "Gyro X-Axis"
 #define D_GY_AXIS "Gyro Y-Axis"
 #define D_GZ_AXIS "Gyro Z-Axis"
+
+// xsns_33_QMC5883L.ino
+#define D_MX "Induction X-Axis"
+#define D_MY "Induction Y-Axis"
+#define D_MZ "Induction Z-Axis"
+#define D_MAGNETICFLD "Magnetic Induction"
 
 // xsns_34_hx711.ino
 #define D_HX_CAL_REMOVE "Treu el pes"
@@ -675,8 +696,12 @@
 #define D_SENSOR_SBR_TX        "SerBr Tx"
 #define D_SENSOR_MBR_TX        "ModBr Tx"
 #define D_SENSOR_MBR_RX        "ModBr Rx"
+#define D_SENSOR_MBR_TX_ENA    "ModBr Tx Ena"
 #define D_SENSOR_SR04_TRIG     "SR04 Tri/TX"
 #define D_SENSOR_SR04_ECHO     "SR04 Ech/RX"
+#define D_SENSOR_NRG_MBS_TX    "NrgMbs Tx"
+#define D_SENSOR_NRG_MBS_RX    "NrgMbs Rx"
+#define D_SENSOR_NRG_MBS_TX_ENA  "NrgMbs Tx Ena"
 #define D_SENSOR_SDM72_TX      "SDM72 Tx"
 #define D_SENSOR_SDM72_RX      "SDM72 Rx"
 #define D_SENSOR_SDM120_TX     "SDMx20 Tx"
@@ -687,6 +712,8 @@
 #define D_SENSOR_SDM630_RX     "SDM630 Rx"
 #define D_SENSOR_WE517_TX      "WE517 Tx"
 #define D_SENSOR_WE517_RX      "WE517 Rx"
+#define D_SENSOR_LD2410_TX     "LD2410 Tx"
+#define D_SENSOR_LD2410_RX     "LD2410 Rx"
 #define D_GPIO_TM1621_CS       "TM1621 CS"
 #define D_GPIO_TM1621_WR       "TM1621 WR"
 #define D_GPIO_TM1621_RD       "TM1621 RD"
@@ -755,6 +782,8 @@
 #define D_SENSOR_HRE_DATA      "HRE Data"
 #define D_SENSOR_ADE7880_IRQ   "ADE7880 IRQ"
 #define D_SENSOR_ADE7953_IRQ   "ADE7953 IRQ"
+#define D_SENSOR_ADE7953_RST   "ADE7953 RST"
+#define D_SENSOR_ADE7953_CS    "ADE7953 CS"
 #define D_SENSOR_BUZZER        "Brunzidor"
 #define D_SENSOR_DISP_RESET    "Display Rst"
 #define D_SENSOR_ZIGBEE_TXD    "Zigbee Tx"
@@ -775,6 +804,8 @@
 #define D_SENSOR_OUTPUT_LO     "Sortida baixa"
 #define D_SENSOR_AS608_TX      "AS608 Tx"
 #define D_SENSOR_AS608_RX      "AS608 Rx"
+#define D_SENSOR_GM861_TX      "GM861 Tx"
+#define D_SENSOR_GM861_RX      "GM861 Rx"
 #define D_SENSOR_DDS2382_TX    "DDS238-2 Tx"
 #define D_SENSOR_DDS2382_RX    "DDS238-2 Rx"
 #define D_SENSOR_DDSU666_TX    "DDSU666 Tx"
@@ -783,6 +814,8 @@
 #define D_SENSOR_SM2135_DAT    "SM2135 Dat"
 #define D_SENSOR_SM2335_CLK    "SM2335 Clk"
 #define D_SENSOR_SM2335_DAT    "SM2335 Dat"
+#define D_SENSOR_BP1658CJ_CLK  "BP1658CJ Clk"
+#define D_SENSOR_BP1658CJ_DAT  "BP1658CJ Dat"
 #define D_SENSOR_BP5758D_CLK    "BP5758D Clk"
 #define D_SENSOR_BP5758D_DAT    "BP5758D Dat"
 #define D_SENSOR_DEEPSLEEP     "DeepSleep"
@@ -869,6 +902,9 @@
 #define D_SENSOR_ZEROCROSS     "ZC Pulse"
 #define D_SENSOR_HALLEFFECT    "HallEffect"
 #define D_SENSOR_EPD_DATA      "EPD Data"
+#define D_SENSOR_PCF8574_INT   "PCF8574 Int"
+#define D_SENSOR_MCP23XXX_INT  "MCP23xxx Int"
+#define D_SENSOR_MCP23SXX_CS   "MCP23Sxx CS"
 #define D_SENSOR_MCP2515_CS    "MCP2515 CS"
 #define D_SENSOR_HRG15_RX      "HRG15 Rx"
 #define D_SENSOR_HRG15_TX      "HRG15 Tx"
@@ -881,9 +917,23 @@
 #define D_GPIO_SHIFT595_RCLK   "74x595 RCLK"
 #define D_GPIO_SHIFT595_OE     "74x595 OE"
 #define D_GPIO_SHIFT595_SER    "74x595 SER"
+#define D_GPIO_DINGTIAN_CLK    "Dingtian CLK"
+#define D_GPIO_DINGTIAN_SDI    "Dingtian SDI"
+#define D_GPIO_DINGTIAN_Q7     "Dingtian Q7"
+#define D_GPIO_DINGTIAN_PL     "Dingtian PL"
+#define D_GPIO_DINGTIAN_OE     "Dingtian OE"
+#define D_GPIO_DINGTIAN_RCK    "Dingtian RCK"
 #define D_SENSOR_CM11_TX       "CM110x TX"
 #define D_SENSOR_CM11_RX       "CM110x RX"
 #define D_SENSOR_FLOWRATEMETER "Cabal"
+#define D_SENSOR_ME007_TRIG    "ME007 Tri"
+#define D_SENSOR_ME007_RX      "ME007 Rx"
+#define D_SENSOR_TUYAMCUBR_TX  "TuyaMCUBr Tx"
+#define D_SENSOR_TUYAMCUBR_RX  "TuyaMCUBr Rx"
+#define D_SENSOR_BIOPDU_PZEM0XX_TX "BioPDU PZEM0XX Tx"
+#define D_SENSOR_BIOPDU_PZEM016_RX "BioPDU PZEM016 Rx"
+#define D_SENSOR_BIOPDU_BIT    "BioPDU Bit"
+#define D_SENSOR_LOX_O2_RX     "LoxO2 RX"
 
 // Units
 #define D_UNIT_AMPERE "A"
@@ -896,6 +946,7 @@
 #define D_UNIT_HOUR "h"
 #define D_UNIT_GALLONS "gal"
 #define D_UNIT_GALLONS_PER_MIN "g/m"
+#define D_UNIT_GRAM_PER_CUBIC_METER "g/m³"
 #define D_UNIT_INCH_MERCURY "inHg"
 #define D_UNIT_INCREMENTS "inc"
 #define D_UNIT_KELVIN "K"
@@ -911,6 +962,7 @@
 #define D_UNIT_MICROMETER "µm"
 #define D_UNIT_MICROSECOND "µs"
 #define D_UNIT_MICROSIEMENS_PER_CM "µS/cm"
+#define D_UNIT_MICROTESLA "µT"
 #define D_UNIT_MILLIAMPERE "mA"
 #define D_UNIT_MILLILITERS "ml"
 #define D_UNIT_MILLIMETER "mm"
@@ -934,6 +986,7 @@
 #define D_UNIT_WATT_METER_QUADRAT "W/m²"
 #define D_UNIT_LITER_PER_MINUTE "l/min"
 #define D_UNIT_CUBICMETER_PER_HOUR "m³/h"
+#define D_UNIT_CUBIC_METER "m³"
 
 #define D_NEW_ADDRESS          "Posant l'adreça a"
 #define D_OUT_OF_RANGE         "Fora de rang"
@@ -1077,6 +1130,8 @@
 
 // xsns_96_flowratemeter.ino
 #define D_FLOWRATEMETER_NAME "Cabal"
+#define D_FLOWRATEMETER_AMOUNT_TODAY "Amount Today"
+#define D_FLOWRATEMETER_DURATION_TODAY "Duration Today"
 
 // xsns_83_neopool.ino
 #define D_NEOPOOL_MACH_NONE               "NeoPool"           // Machine names
@@ -1138,5 +1193,9 @@
 #define D_NEOPOOL_PH_HIGH                 "massa alt"          // ph Alarms
 #define D_NEOPOOL_PH_LOW                  "massa baix"
 #define D_NEOPOOL_PUMP_TIME_EXCEEDED      "temps de bomba excedit"
+
+// xsns_106_gdk101.ino
+#define D_AVG_RAD_DOSE                    "dosi mitjana de radiació"
+#define D_UNIT_US_H                       "µSv/h"
 
 #endif  // _LANGUAGE_CA_AD_H_

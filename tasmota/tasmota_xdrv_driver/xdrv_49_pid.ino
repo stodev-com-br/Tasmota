@@ -105,13 +105,22 @@
                                                  // with just one relay then this will be 1.
                                                  // USE_TIMEPROP will be automativally included. You must set the output as
                                                  // explained in xdrv_48_timeprop.ino
-                                                 // To disable, override to false in user_config_override.h. If USE_TIMEPROP is 
+                                                 // To disable, override to false in user_config_override.h. If USE_TIMEPROP is
                                                  // not explicitly defined, then it will not be added by default.
 
    #define PID_USE_LOCAL_SENSOR                  // If defined then the local sensor will be used for pv. Leave undefined if
                                                  // this is not required.  The rate that the sensor is read is defined by TELE_PERIOD
                                                  // If not using the sensor then you can supply process values via MQTT using
                                                  // cmnd PidPv
+
+    #define PID_LOCAL_SENSOR_NAME         "DS18B20"           // local sensor name when PID_USE_LOCAL_SENSOR is defined above
+                                                              // the JSON payload is parsed for this sensor to find the present value
+                                                              // eg "ESP32":{"Temperature":31.4},"DS18B20":{"Temperature":12.6}
+
+    #define PID_LOCAL_SENSOR_TYPE         D_JSON_TEMPERATURE  // Choose one of D_JSON_TEMPERATURE D_JSON_HUMIDITY D_JSON_PRESSURE
+                                                              // or any string as the sensor type. The JSON payload is parsed for the
+                                                              // value in this field
+                                                              // eg "HDC1080":{"Temperature":24.8,"Humidity":79.2}
 
    #define PID_SHUTTER                   1       // if using the PID to control a 3-way valve, create Tasmota Shutter and define the
                                                  // number of the shutter here. Otherwise leave this commented out
@@ -159,7 +168,15 @@
 #ifndef PID_USE_TIMPROP
 #define PID_USE_TIMPROP               1       // To disable this feature define as false in user_config_override
 #endif
-//#define PID_USE_LOCAL_SENSOR                  // [PidPv] If defined then the local sensor will be used for pv.
+
+// #define PID_USE_LOCAL_SENSOR                 // If defined then the local sensor will be used for pv.
+#ifndef PID_LOCAL_SENSOR_NAME
+#define PID_LOCAL_SENSOR_NAME         "DS18B20" // local sensor name when PID_USE_LOCAL_SENSOR is defined
+#endif
+#ifndef PID_LOCAL_SENSOR_TYPE
+#define PID_LOCAL_SENSOR_TYPE         D_JSON_TEMPERATURE // local sensor type
+#endif
+
 //#define PID_SHUTTER                   1       // Number of the shutter here. Otherwise leave this commented out
 #ifndef PID_REPORT_MORE_SETTINGS
 #define PID_REPORT_MORE_SETTINGS     true     // Override to false if less details are required in SENSOR JSON
@@ -230,6 +247,9 @@ void PIDEverySecond() {
   // run the pid algorithm if Pid.run_pid_now is true or if the right number of seconds has passed or if too long has
   // elapsed since last pv update. If too long has elapsed the the algorithm will deal with that.
   if (Pid.run_pid_now  ||  Pid.current_time_secs - Pid.last_pv_update_secs > Pid.max_interval  ||  (Pid.update_secs != 0 && sec_counter++ % Pid.update_secs  ==  0)) {
+    if (!Pid.run_pid_now) {
+      PIDShowSensor();    // set actual process value
+    }
     PIDRun();
     Pid.run_pid_now = false;
   }
@@ -239,95 +259,125 @@ void PIDShowSensor() {
   // Called each time new sensor data available, data in mqtt data in same format
   // as published in tele/SENSOR
   // Update period is specified in TELE_PERIOD
-  if (!isnan(TasmotaGlobal.temperature_celsius)) {
-    const float temperature = TasmotaGlobal.temperature_celsius;
+
+  float sensor_reading = NAN;
+
+#if defined PID_USE_LOCAL_SENSOR
+  // copy the string into a new buffer that will be modified and
+  // parsed to find the local sensor reading if it's there
+  String buf = ResponseData();
+  JsonParser parser((char*)buf.c_str());
+  JsonParserObject root = parser.getRootObject();
+  if (root) {
+    JsonParserToken value_token = root[PID_LOCAL_SENSOR_NAME].getObject()[PSTR(PID_LOCAL_SENSOR_TYPE)];
+    if (value_token.isNum()) {
+      sensor_reading = value_token.getFloat();
+    }
+  }
+#endif // PID_USE_LOCAL_SENSOR
+
+  if (!isnan(sensor_reading)) {
 
     // pass the value to the pid alogorithm to use as current pv
     Pid.last_pv_update_secs = Pid.current_time_secs;
-    Pid.pid.setPv(temperature, Pid.last_pv_update_secs);
+    Pid.pid.setPv(sensor_reading, Pid.last_pv_update_secs);
     // also trigger running the pid algorithm if we have been told to run it each pv sample
     if (Pid.update_secs == 0) {
       // this runs it at the next second
       Pid.run_pid_now = true;
     }
   } else {
-    AddLog(LOG_LEVEL_ERROR, PSTR("PID: No local temperature sensor found"));
+    // limit sensor not seen message to every 60 seconds to avoid flooding the logs
+    if ((Pid.current_time_secs - Pid.last_pv_update_secs) > Pid.max_interval && ((Pid.current_time_secs - Pid.last_pv_update_secs)%60)==0) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("PID: Local temperature sensor missing for longer than PID_MAX_INTERVAL"));
+    }
   }
 }
 
-/* struct XDRVMAILBOX { */
-/*   uint16_t      valid; */
-/*   uint16_t      index; */
-/*   uint16_t      data_len; */
-/*   int16_t       payload; */
-/*   char         *topic; */
-/*   char         *data; */
-/* } XdrvMailbox; */
-
 void CmndSetPv(void) {
   Pid.last_pv_update_secs = Pid.current_time_secs;
-  Pid.pid.setPv(atof(XdrvMailbox.data), Pid.last_pv_update_secs);
+  if (XdrvMailbox.data_len > 0) {
+    Pid.pid.setPv(CharToFloat(XdrvMailbox.data), Pid.last_pv_update_secs);
+  }
   // also trigger running the pid algorithm if we have been told to run it each pv sample
   if (Pid.update_secs == 0) {
     // this runs it at the next second
     Pid.run_pid_now = true;
   }
-  ResponseCmndFloat(atof(XdrvMailbox.data), 1);
+  ResponseCmndFloat(Pid.pid.getPv(), 1);
 }
 
 void CmndSetSp(void) {
-  Pid.pid.setSp(atof(XdrvMailbox.data));
-  ResponseCmndFloat(atof(XdrvMailbox.data), 1);
+  if (XdrvMailbox.data_len > 0) {
+    Pid.pid.setSp(CharToFloat(XdrvMailbox.data));
+  }
+  ResponseCmndFloat(Pid.pid.getSp(), 1);
 }
 
 void CmndSetPb(void) {
-  Pid.pid.setPb(atof(XdrvMailbox.data));
-  ResponseCmndFloat(atof(XdrvMailbox.data), 1);
+  if (XdrvMailbox.data_len > 0) {
+    Pid.pid.setPb(CharToFloat(XdrvMailbox.data));
+  }
+  ResponseCmndFloat(Pid.pid.getPb(), 1);
 }
 
 void CmndSetTi(void) {
-  Pid.pid.setTi(atof(XdrvMailbox.data));
-  ResponseCmndFloat(atof(XdrvMailbox.data), 1);
+  if (XdrvMailbox.data_len > 0) {
+    Pid.pid.setTi(CharToFloat(XdrvMailbox.data));
+  }
+  ResponseCmndFloat(Pid.pid.getTi(), 1);
 }
 
 void CmndSetTd(void) {
-  Pid.pid.setTd(atof(XdrvMailbox.data));
-  ResponseCmndFloat(atof(XdrvMailbox.data), 1);
+  if (XdrvMailbox.data_len > 0) {
+    Pid.pid.setTd(CharToFloat(XdrvMailbox.data));
+  }
+  ResponseCmndFloat(Pid.pid.getTd(), 1);
 }
 
 void CmndSetInitialInt(void) {
-  Pid.pid.setInitialInt(atof(XdrvMailbox.data));
-  ResponseCmndNumber(atof(XdrvMailbox.data));
+  if (XdrvMailbox.data_len > 0) {
+    Pid.pid.setInitialInt(CharToFloat(XdrvMailbox.data));
+  }
+  ResponseCmndNumber(Pid.pid.getInitialInt());
 }
 
 void CmndSetDSmooth(void) {
-  Pid.pid.setDSmooth(atof(XdrvMailbox.data));
-  ResponseCmndFloat(atof(XdrvMailbox.data), 1);
+  if (XdrvMailbox.data_len > 0) {
+    Pid.pid.setDSmooth(CharToFloat(XdrvMailbox.data));
+  }
+  ResponseCmndFloat(Pid.pid.getDSmooth(), 1);
 }
 
 void CmndSetAuto(void) {
-  Pid.pid.setAuto(atoi(XdrvMailbox.data));
-  ResponseCmndNumber(atoi(XdrvMailbox.data));
+  if (XdrvMailbox.payload >= 0) {
+    Pid.pid.setAuto(XdrvMailbox.payload);
+  }
+  ResponseCmndNumber(Pid.pid.getAuto());
 }
 
 void CmndSetManualPower(void) {
-  Pid.pid.setManualPower(atof(XdrvMailbox.data));
-  ResponseCmndFloat(atof(XdrvMailbox.data), 1);
+  if (XdrvMailbox.data_len > 0) {
+    Pid.pid.setManualPower(CharToFloat(XdrvMailbox.data));
+  }
+  ResponseCmndFloat(Pid.pid.getManualPower(), 1);
 }
 
 void CmndSetMaxInterval(void) {
-  Pid.pid.setMaxInterval(atoi(XdrvMailbox.data));
-  ResponseCmndNumber(atoi(XdrvMailbox.data));
+  if (XdrvMailbox.payload >= 0) {
+    Pid.pid.setMaxInterval(XdrvMailbox.payload);
+    Pid.max_interval=XdrvMailbox.payload;
+  }
+  ResponseCmndNumber(Pid.pid.getMaxInterval());
 }
 
-// case CMND_PID_SETUPDATE_SECS:
-//   Pid.update_secs = atoi(XdrvMailbox.data) ;
-//   if (Pid.update_secs < 0)
-//     Pid.update_secs = 0;
 void CmndSetUpdateSecs(void) {
-  Pid.update_secs = (atoi(XdrvMailbox.data));
-  if (Pid.update_secs < 0)
+  if (XdrvMailbox.payload >= 0) {
+    Pid.update_secs = (XdrvMailbox.payload);
+  }
+  if (Pid.update_secs < 0) {
     Pid.update_secs = 0;
+  }
   ResponseCmndNumber(Pid.update_secs);
 }
 
@@ -338,57 +388,81 @@ void PIDShowValues(void) {
   double d_buf;
   ResponseAppend_P(PSTR(",\"PID\":{"));
 
-// #define D_CMND_PID_SETPV "Pv"
   d_buf = Pid.pid.getPv();
   dtostrfd(d_buf, 2, str_buf);
   ResponseAppend_P(PSTR("\"PidPv\":%s,"), str_buf);
-// #define D_CMND_PID_SETSETPOINT "Sp"
   d_buf = Pid.pid.getSp();
   dtostrfd(d_buf, 2, str_buf);
   ResponseAppend_P(PSTR("\"PidSp\":%s,"), str_buf);
 
 #if PID_REPORT_MORE_SETTINGS
-// #define D_CMND_PID_SETPROPBAND "Pb"
   d_buf = Pid.pid.getPb();
   dtostrfd(d_buf, 2, str_buf);
   ResponseAppend_P(PSTR("\"PidPb\":%s,"), str_buf);
-// #define D_CMND_PID_SETINTEGRAL_TIME "Ti"
   d_buf = Pid.pid.getTi();
   dtostrfd(d_buf, 2, str_buf);
   ResponseAppend_P(PSTR("\"PidTi\":%s,"), str_buf);
-// #define D_CMND_PID_SETDERIVATIVE_TIME "Td"
   d_buf = Pid.pid.getTd();
   dtostrfd(d_buf, 2, str_buf);
   ResponseAppend_P(PSTR("\"PidTd\":%s,"), str_buf);
-// #define D_CMND_PID_SETINITIAL_INT "Initint"
   d_buf = Pid.pid.getInitialInt();
   dtostrfd(d_buf, 2, str_buf);
   ResponseAppend_P(PSTR("\"PidInitialInt\":%s,"), str_buf);
-// #define D_CMND_PID_SETDERIV_SMOOTH_FACTOR "DSmooth"
   d_buf = Pid.pid.getDSmooth();
   dtostrfd(d_buf, 2, str_buf);
   ResponseAppend_P(PSTR("\"PidDSmooth\":%s,"), str_buf);
-// #define D_CMND_PID_SETAUTO "Auto"
   chr_buf = Pid.pid.getAuto();
   ResponseAppend_P(PSTR("\"PidAuto\":%d,"), chr_buf);
-// #define D_CMND_PID_SETMANUAL_POWER "ManualPower"
   d_buf = Pid.pid.getManualPower();
   dtostrfd(d_buf, 2, str_buf);
   ResponseAppend_P(PSTR("\"PidManualPower\":%s,"), str_buf);
-// #define D_CMND_PID_SETMAX_INTERVAL "MaxInterval"
   i_buf = Pid.pid.getMaxInterval();
   ResponseAppend_P(PSTR("\"PidMaxInterval\":%d,"), i_buf);
-
-// #define D_CMND_PID_SETUPDATE_SECS "UpdateSecs"
+  i_buf = Pid.current_time_secs - Pid.last_pv_update_secs;
+  ResponseAppend_P(PSTR("\"PidInterval\":%d,"), i_buf);
   ResponseAppend_P(PSTR("\"PidUpdateSecs\":%d,"), Pid.update_secs);
 #endif // PID_REPORT_MORE_SETTINGS
 
+  i_buf = (Pid.current_time_secs - Pid.last_pv_update_secs) > Pid.pid.getMaxInterval();
+  ResponseAppend_P(PSTR("\"PidSensorLost\":%d,"), i_buf);
 // The actual power value
   d_buf = Pid.pid.tick(Pid.current_time_secs);
   dtostrfd(d_buf, 2, str_buf);
   ResponseAppend_P(PSTR("\"PidPower\":%s"), str_buf);
 
   ResponseAppend_P(PSTR("}"));
+}
+
+void PIDShowValuesWeb(void) {
+
+#define D_PID_DISPLAY_NAME     "PID Controller"
+#define D_PID_SET_POINT        "Set Point"
+#define D_PID_PRESENT_VALUE    "Current Value"
+#define D_PID_POWER            "Power"
+#define D_PID_MODE             "Controller Mode"
+#define D_PID_MODE_AUTO        "Auto"
+#define D_PID_MODE_MANUAL      "Manual"
+#define D_PID_MODE_OFF         "Off"
+
+  const char HTTP_PID_HL[] PROGMEM = "{s}<hr>{m}<hr>{e}";
+  const char HTTP_PID_INFO[] PROGMEM = "{s}" D_PID_DISPLAY_NAME "{m}%s{e}";
+  const char HTTP_PID_SP_FORMAT[] PROGMEM = "{s}%s " "{m}%*_f ";
+  const char HTTP_PID_PV_FORMAT[] PROGMEM = "{s}%s " "{m}%*_f ";
+  const char HTTP_PID_POWER_FORMAT[] PROGMEM = "{s}%s " "{m}%*_f " D_UNIT_PERCENT;
+
+  float f_buf;
+
+  WSContentSend_P(HTTP_PID_HL);
+  WSContentSend_P(HTTP_PID_INFO, (Pid.pid.getAuto()==1) ? D_PID_MODE_AUTO : Pid.pid.tick(Pid.current_time_secs)>0.0f ? D_PID_MODE_MANUAL : D_PID_MODE_OFF);
+
+  if (Pid.pid.getAuto()==1 || Pid.pid.tick(Pid.current_time_secs)>0.0f) {
+    f_buf = (float)Pid.pid.getSp();
+    WSContentSend_PD(HTTP_PID_SP_FORMAT, D_PID_SET_POINT, 1, &f_buf);
+    f_buf = (float)Pid.pid.getPv();
+    WSContentSend_PD(HTTP_PID_PV_FORMAT, D_PID_PRESENT_VALUE, 1, &f_buf);
+    f_buf = Pid.pid.tick(Pid.current_time_secs)*100.0f;
+    WSContentSend_PD(HTTP_PID_POWER_FORMAT, D_PID_POWER, 0, &f_buf);
+  }
 }
 
 void PIDRun(void) {
@@ -420,7 +494,7 @@ void PIDRun(void) {
 
 #define XDRV_49       49
 
-bool Xdrv49(byte function) {
+bool Xdrv49(uint32_t function) {
   bool result = false;
 
   switch (function) {
@@ -441,6 +515,9 @@ bool Xdrv49(byte function) {
       break;
     case FUNC_JSON_APPEND:
       PIDShowValues();
+      break;
+    case FUNC_WEB_SENSOR:
+      PIDShowValuesWeb();
       break;
   }
   return result;
