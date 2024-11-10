@@ -183,6 +183,7 @@ extern "C" {
     be_map_insert_int(vm, "local", Rtc.local_time);
     be_map_insert_int(vm, "restart", Rtc.restart_time);
     be_map_insert_int(vm, "timezone", Rtc.time_timezone);
+    be_map_insert_int(vm, "config_time", Settings->cfg_timestamp);
     be_pop(vm, 1);
     be_return(vm);
   }
@@ -241,7 +242,7 @@ extern "C" {
       be_newobject(vm, "map");
       // (-2) map instance, (-1) map
     }
-    be_map_insert_str(vm, "mac", WiFi.macAddress().c_str());
+    be_map_insert_str(vm, "mac", WiFiHelper::macAddress().c_str());
     be_map_insert_bool(vm, "up", WifiHasIP());
     if (Settings->flag4.network_wifi) {
       int32_t rssi = WiFi.RSSI();
@@ -404,7 +405,8 @@ extern "C" {
   // ESP object
   int32_t l_yield(bvm *vm);
   int32_t l_yield(bvm *vm) {
-    return be_call_c_func(vm, (void*) &BrTimeoutYield, NULL, "-");
+    BrTimeoutYield();
+    be_return_nil(vm);
   }
 
   // Berry: tasmota.scale_uint(int * 5) -> int

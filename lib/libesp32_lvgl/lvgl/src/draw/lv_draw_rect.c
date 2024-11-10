@@ -6,8 +6,9 @@
 /*********************
  *      INCLUDES
  *********************/
+#include "lv_draw_rect_private.h"
+#include "lv_draw_private.h"
 #include "../core/lv_obj.h"
-#include "lv_draw_rect.h"
 #include "../misc/lv_assert.h"
 #include "../core/lv_obj_event.h"
 #include "../stdlib/lv_string.h"
@@ -36,7 +37,7 @@
  *   GLOBAL FUNCTIONS
  **********************/
 
-LV_ATTRIBUTE_FAST_MEM void lv_draw_rect_dsc_init(lv_draw_rect_dsc_t * dsc)
+void LV_ATTRIBUTE_FAST_MEM lv_draw_rect_dsc_init(lv_draw_rect_dsc_t * dsc)
 {
     lv_memzero(dsc, sizeof(lv_draw_rect_dsc_t));
     dsc->bg_color = lv_color_white();
@@ -62,6 +63,11 @@ void lv_draw_fill_dsc_init(lv_draw_fill_dsc_t * dsc)
     dsc->base.dsc_size = sizeof(lv_draw_fill_dsc_t);
 }
 
+lv_draw_fill_dsc_t * lv_draw_task_get_fill_dsc(lv_draw_task_t * task)
+{
+    return task->type == LV_DRAW_TASK_TYPE_FILL ? (lv_draw_fill_dsc_t *)task->draw_dsc : NULL;
+}
+
 void lv_draw_border_dsc_init(lv_draw_border_dsc_t * dsc)
 {
     lv_memzero(dsc, sizeof(*dsc));
@@ -70,11 +76,21 @@ void lv_draw_border_dsc_init(lv_draw_border_dsc_t * dsc)
     dsc->base.dsc_size = sizeof(lv_draw_border_dsc_t);
 }
 
+lv_draw_border_dsc_t * lv_draw_task_get_border_dsc(lv_draw_task_t * task)
+{
+    return task->type == LV_DRAW_TASK_TYPE_BORDER ? (lv_draw_border_dsc_t *)task->draw_dsc : NULL;
+}
+
 void lv_draw_box_shadow_dsc_init(lv_draw_box_shadow_dsc_t * dsc)
 {
     lv_memzero(dsc, sizeof(*dsc));
     dsc->opa = LV_OPA_COVER;
     dsc->base.dsc_size = sizeof(lv_draw_box_shadow_dsc_t);
+}
+
+lv_draw_box_shadow_dsc_t * lv_draw_task_get_box_shadow_dsc(lv_draw_task_t * task)
+{
+    return task->type == LV_DRAW_TASK_TYPE_BOX_SHADOW ? (lv_draw_box_shadow_dsc_t *)task->draw_dsc : NULL;
 }
 
 void lv_draw_rect(lv_layer_t * layer, const lv_draw_rect_dsc_t * dsc, const lv_area_t * coords)
@@ -103,7 +119,10 @@ void lv_draw_rect(lv_layer_t * layer, const lv_draw_rect_dsc_t * dsc, const lv_a
     if(dsc->bg_image_opa <= LV_OPA_MIN || dsc->bg_image_src == NULL) has_bg_img = false;
     else has_bg_img = true;
 
-    if(dsc->border_opa <= LV_OPA_MIN || dsc->border_width == 0 || dsc->border_post == true) has_border = false;
+    if(dsc->border_opa <= LV_OPA_MIN
+       || dsc->border_width == 0
+       || dsc->border_post == true
+       || dsc->border_side == LV_BORDER_SIDE_NONE) has_border = false;
     else has_border = true;
 
     if(dsc->outline_opa <= LV_OPA_MIN || dsc->outline_width == 0) has_outline = false;
@@ -210,6 +229,7 @@ void lv_draw_rect(lv_layer_t * layer, const lv_draw_rect_dsc_t * dsc, const lv_a
                 bg_image_dsc->recolor_opa = dsc->bg_image_recolor_opa;
                 bg_image_dsc->tile = dsc->bg_image_tiled;
                 bg_image_dsc->header = header;
+                bg_image_dsc->clip_radius = dsc->radius;
                 t->type = LV_DRAW_TASK_TYPE_IMAGE;
                 lv_draw_finalize_task_creation(layer, t);
             }

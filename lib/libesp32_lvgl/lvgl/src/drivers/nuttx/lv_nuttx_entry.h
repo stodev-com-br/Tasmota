@@ -18,6 +18,7 @@ extern "C" {
  *      INCLUDES
  *********************/
 
+#include "../../lv_conf_internal.h"
 #include "../../display/lv_display.h"
 #include "../../indev/lv_indev.h"
 
@@ -41,6 +42,11 @@ typedef struct {
     lv_indev_t * indev;
     lv_indev_t * utouch_indev;
 } lv_nuttx_result_t;
+
+typedef struct lv_nuttx_ctx_t {
+    void * image_cache;
+} lv_nuttx_ctx_t;
+
 /**********************
  * GLOBAL PROTOTYPES
  **********************/
@@ -58,6 +64,12 @@ void lv_nuttx_dsc_init(lv_nuttx_dsc_t * dsc);
  */
 void lv_nuttx_init(const lv_nuttx_dsc_t * dsc, lv_nuttx_result_t * result);
 
+/**
+ * Deinitialize the LVGL display driver for NuttX.
+ * @param result Pointer to the lv_nuttx_result_t structure containing display and input device handler.
+ */
+void lv_nuttx_deinit(lv_nuttx_result_t * result);
+
 #if LV_USE_NUTTX_CUSTOM_INIT
 /**
  * Initialize the LVGL display driver for NuttX using the provided custom configuration information.
@@ -66,7 +78,26 @@ void lv_nuttx_init(const lv_nuttx_dsc_t * dsc, lv_nuttx_result_t * result);
  */
 void lv_nuttx_init_custom(const lv_nuttx_dsc_t * dsc, lv_nuttx_result_t * result);
 
+/**
+ * Deinitialize the LVGL display driver for NuttX using the provided custom configuration information.
+ * @param result Pointer to the lv_nuttx_result_t structure containing display and input device handler.
+ */
+void lv_nuttx_deinit_custom(lv_nuttx_result_t * result);
 #endif /* LV_USE_NUTTX_CUSTOM_INIT */
+
+/**
+ * Call `lv_timer_handler()` (LVGL's super loop) in an endless loop.
+ * If LV_USE_NUTTX_LIBUV is enabled an UV timer will be created,
+ * else `lv_timer_handler()` will be called in a loop with some sleep.
+ * @param result pointer to a variable initialized by `lv_nuttx_init()` or `lv_nuttx_init_custom()`
+ */
+void lv_nuttx_run(lv_nuttx_result_t * result);
+
+/**
+ * Get the idle percentage of the system.
+ * @return The idle percentage of the system.
+ */
+uint32_t lv_nuttx_get_idle(void);
 
 /**********************
  *      MACROS

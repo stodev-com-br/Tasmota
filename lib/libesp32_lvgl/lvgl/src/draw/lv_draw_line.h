@@ -38,7 +38,7 @@ typedef struct {
     lv_blend_mode_t blend_mode  : 2;
     uint8_t round_start : 1;
     uint8_t round_end   : 1;
-    uint8_t raw_end     : 1;    /*Do not bother with perpendicular line ending if it's not visible for any reason*/
+    uint8_t raw_end     : 1;    /**< Do not bother with perpendicular line ending if it's not visible for any reason */
 } lv_draw_line_dsc_t;
 
 /**********************
@@ -50,6 +50,13 @@ typedef struct {
  * @param dsc       pointer to a draw descriptor
  */
 void lv_draw_line_dsc_init(lv_draw_line_dsc_t * dsc);
+
+/**
+ * Try to get a line draw descriptor from a draw task.
+ * @param task      draw task
+ * @return          the task's draw descriptor or NULL if the task is not of type LV_DRAW_TASK_TYPE_LINE
+ */
+lv_draw_line_dsc_t * lv_draw_task_get_line_dsc(lv_draw_task_t * task);
 
 /**
  * Create a line draw task

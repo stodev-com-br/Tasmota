@@ -6,7 +6,8 @@
 /*********************
  *      INCLUDES
  *********************/
-#include "lv_spinbox.h"
+#include "lv_spinbox_private.h"
+#include "../../core/lv_obj_class_private.h"
 #if LV_USE_SPINBOX
 
 #include "../../misc/lv_assert.h"
@@ -16,7 +17,7 @@
 /*********************
  *      DEFINES
  *********************/
-#define MY_CLASS    &lv_spinbox_class
+#define MY_CLASS (&lv_spinbox_class)
 #define LV_SPINBOX_MAX_DIGIT_COUNT_WITH_8BYTES (LV_SPINBOX_MAX_DIGIT_COUNT + 8U)
 #define LV_SPINBOX_MAX_DIGIT_COUNT_WITH_4BYTES (LV_SPINBOX_MAX_DIGIT_COUNT + 4U)
 
@@ -364,6 +365,8 @@ static void lv_spinbox_event(const lv_obj_class_t * class_p, lv_event_t * e)
             spinbox->step = 1;
             uint32_t i;
             for(i = 0; i < pos; i++) spinbox->step *= 10;
+
+            lv_spinbox_updatevalue(obj);
         }
     }
     else if(code == LV_EVENT_KEY) {

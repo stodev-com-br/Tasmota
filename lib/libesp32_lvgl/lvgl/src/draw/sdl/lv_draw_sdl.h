@@ -17,11 +17,17 @@ extern "C" {
 
 #if LV_USE_DRAW_SDL
 
-#include <src/misc/cache/lv_cache.h>
+#include "../../misc/cache/lv_cache.h"
 #include "../../misc/lv_area.h"
 #include "../../misc/lv_color.h"
 #include "../../display/lv_display.h"
 #include "../../osal/lv_os.h"
+#include "../../draw/lv_draw_label.h"
+#include "../../draw/lv_draw_rect.h"
+#include "../../draw/lv_draw_arc.h"
+#include "../../draw/lv_draw_image.h"
+#include "../../draw/lv_draw_triangle.h"
+#include "../../draw/lv_draw_line.h"
 
 /*********************
  *      DEFINES
@@ -38,22 +44,14 @@ typedef struct {
     lv_cache_t * texture_cache;
 } lv_draw_sdl_unit_t;
 
-#if LV_DRAW_SW_SHADOW_CACHE_SIZE
-typedef struct {
-    uint8_t cache[LV_DRAW_SW_SHADOW_CACHE_SIZE * LV_DRAW_SW_SHADOW_CACHE_SIZE];
-    int32_t cache_size;
-    int32_t cache_r;
-} lv_draw_sw_shadow_cache_t;
-#endif
-
 /**********************
  * GLOBAL PROTOTYPES
  **********************/
 
 void lv_draw_sdl_init(void);
 
-LV_ATTRIBUTE_FAST_MEM void lv_draw_sdl_image(lv_draw_unit_t * draw_unit, const lv_draw_image_dsc_t * draw_dsc,
-                                             const lv_area_t * coords);
+void /* LV_ATTRIBUTE_FAST_MEM */ lv_draw_sdl_image(lv_draw_unit_t * draw_unit, const lv_draw_image_dsc_t * draw_dsc,
+                                                   const lv_area_t * coords);
 
 void lv_draw_sdl_fill(lv_draw_unit_t * draw_unit, const lv_draw_fill_dsc_t * dsc, const lv_area_t * coords);
 
@@ -65,7 +63,7 @@ void lv_draw_sdl_label(lv_draw_unit_t * draw_unit, const lv_draw_label_dsc_t * d
 
 void lv_draw_sdl_arc(lv_draw_unit_t * draw_unit, const lv_draw_arc_dsc_t * dsc, const lv_area_t * coords);
 
-LV_ATTRIBUTE_FAST_MEM void lv_draw_sdl_line(lv_draw_unit_t * draw_unit, const lv_draw_line_dsc_t * dsc);
+void /* LV_ATTRIBUTE_FAST_MEM */ lv_draw_sdl_line(lv_draw_unit_t * draw_unit, const lv_draw_line_dsc_t * dsc);
 
 void lv_draw_sdl_layer(lv_draw_unit_t * draw_unit, const lv_draw_image_dsc_t * draw_dsc, const lv_area_t * coords);
 

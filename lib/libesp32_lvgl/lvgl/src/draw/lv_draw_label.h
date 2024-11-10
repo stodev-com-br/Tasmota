@@ -14,6 +14,7 @@ extern "C" {
  *      INCLUDES
  *********************/
 #include "lv_draw.h"
+#include "lv_draw_rect.h"
 #include "../misc/lv_bidi.h"
 #include "../misc/lv_text.h"
 #include "../misc/lv_color.h"
@@ -27,23 +28,6 @@ extern "C" {
 /**********************
  *      TYPEDEFS
  **********************/
-
-/** Store some info to speed up drawing of very large texts
- * It takes a lot of time to get the first visible character because
- * all the previous characters needs to be checked to calculate the positions.
- * This structure stores an earlier (e.g. at -1000 px) coordinate and the index of that line.
- * Therefore the calculations can start from here.*/
-typedef struct _lv_draw_label_hint_t {
-    /** Index of the line at `y` coordinate*/
-    int32_t line_start;
-
-    /** Give the `y` coordinate of the first letter at `line start` index. Relative to the label's coordinates*/
-    int32_t y;
-
-    /** The 'y1' coordinate of the label when the hint was saved.
-     * Used to invalidate the hint if the label has moved too much.*/
-    int32_t coord_y;
-} lv_draw_label_hint_t;
 
 typedef struct {
     lv_draw_dsc_base_t base;
@@ -72,24 +56,6 @@ typedef struct {
     lv_draw_label_hint_t * hint;
 } lv_draw_label_dsc_t;
 
-typedef enum {
-    LV_DRAW_LETTER_BITMAP_FORMAT_INVALID,
-    LV_DRAW_LETTER_BITMAP_FORMAT_A8,
-    LV_DRAW_LETTER_BITMAP_FORMAT_IMAGE,
-    LV_DRAW_LETTER_VECTOR_FORMAT,
-} lv_draw_glyph_bitmap_format_t;
-
-typedef struct {
-    void * glyph_data;  /*Depends on `format` field, it could be image source or draw buf of bitmap or vector data.*/
-    lv_draw_glyph_bitmap_format_t format;
-    const lv_area_t * letter_coords;
-    const lv_area_t * bg_coords;
-    const lv_font_glyph_dsc_t * g;
-    lv_color_t color;
-    lv_opa_t opa;
-    lv_draw_buf_t * _draw_buf; /*a shared draw buf for get_bitmap, do not use it directly, use glyph_data instead*/
-} lv_draw_glyph_dsc_t;
-
 /**
  * Passed as a parameter to `lv_draw_label_iterate_characters` to
  * draw the characters one by one
@@ -113,7 +79,14 @@ typedef void(*lv_draw_glyph_cb_t)(lv_draw_unit_t * draw_unit, lv_draw_glyph_dsc_
  * Initialize a label draw descriptor
  * @param dsc       pointer to a draw descriptor
  */
-LV_ATTRIBUTE_FAST_MEM void lv_draw_label_dsc_init(lv_draw_label_dsc_t * dsc);
+void /* LV_ATTRIBUTE_FAST_MEM */ lv_draw_label_dsc_init(lv_draw_label_dsc_t * dsc);
+
+/**
+ * Try to get a label draw descriptor from a draw task.
+ * @param task      draw task
+ * @return          the task's draw descriptor or NULL if the task is not of type LV_DRAW_TASK_TYPE_LABEL
+ */
+lv_draw_label_dsc_t * lv_draw_task_get_label_dsc(lv_draw_task_t * task);
 
 /**
  * Initialize a glyph draw descriptor.
@@ -128,8 +101,8 @@ void lv_draw_glyph_dsc_init(lv_draw_glyph_dsc_t * dsc);
  * @param dsc           pointer to draw descriptor
  * @param coords        coordinates of the character
  */
-LV_ATTRIBUTE_FAST_MEM void lv_draw_label(lv_layer_t * layer, const lv_draw_label_dsc_t * dsc,
-                                         const lv_area_t * coords);
+void /* LV_ATTRIBUTE_FAST_MEM */ lv_draw_label(lv_layer_t * layer, const lv_draw_label_dsc_t * dsc,
+                                               const lv_area_t * coords);
 
 /**
  * Crate a draw task to render a single character
@@ -138,8 +111,8 @@ LV_ATTRIBUTE_FAST_MEM void lv_draw_label(lv_layer_t * layer, const lv_draw_label
  * @param point          position of the label
  * @param unicode_letter the letter to draw
  */
-LV_ATTRIBUTE_FAST_MEM void lv_draw_character(lv_layer_t * layer, lv_draw_label_dsc_t * dsc,
-                                             const lv_point_t * point, uint32_t unicode_letter);
+void /* LV_ATTRIBUTE_FAST_MEM */ lv_draw_character(lv_layer_t * layer, lv_draw_label_dsc_t * dsc,
+                                                   const lv_point_t * point, uint32_t unicode_letter);
 
 /**
  * Should be used during rendering the characters to get the position and other

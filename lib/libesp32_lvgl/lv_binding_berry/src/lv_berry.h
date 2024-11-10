@@ -25,6 +25,8 @@ typedef struct lv_ts_calibration_t {
 } lv_ts_calibration_t;
 extern lv_ts_calibration_t lv_ts_calibration;
 
+// add accessor for lv_bar->indic_area
+extern lv_area_t * lv_bar_get_indic_area(lv_obj_t * bar);
 
 #ifdef __cplusplus
 }

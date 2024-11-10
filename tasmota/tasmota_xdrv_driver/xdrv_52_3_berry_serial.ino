@@ -70,6 +70,37 @@ extern "C" {
     be_raise(vm, kTypeError, nullptr);
   }
 
+  // Berry: `config_tx_en(tx_en_gpio:int) -> nil`
+  int32_t b_config_tx_en(struct bvm *vm);
+  int32_t b_config_tx_en(struct bvm *vm) {
+    be_getmember(vm, 1, ".p");
+    TasmotaSerial * ser = (TasmotaSerial *) be_tocomptr(vm, -1);
+    if (ser) {
+      int32_t tx_en = be_toint(vm, 2);
+      if (tx_en >= 0) {
+        ser->setTransmitEnablePin(tx_en);
+      } else {
+        ser->clearTransmitEnablePin();
+      }
+    }
+    be_return_nil(vm);
+  }
+
+  // Berry: `config(config:int) -> nil or exception`
+  int32_t b_serial_config(struct bvm *vm);
+  int32_t b_serial_config(struct bvm *vm) {
+    be_getmember(vm, 1, ".p");
+    TasmotaSerial * ser = (TasmotaSerial *) be_tocomptr(vm, -1);
+    if (ser) {
+      uint32_t config = be_toint(vm, 2);
+      int32_t err = ser->setConfig(config);
+      if (err) {
+        be_raisef(vm, "internal_error", "Unable to set serial config err %d", err);
+      }
+    }
+    be_return_nil(vm);
+  }
+
   // Berry: `deinit(void)`
   int32_t b_serial_deinit(struct bvm *vm);
   int32_t b_serial_deinit(struct bvm *vm) {

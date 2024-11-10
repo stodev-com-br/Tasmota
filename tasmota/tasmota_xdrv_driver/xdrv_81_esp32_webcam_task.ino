@@ -2519,8 +2519,7 @@ void CmndWebcamGetPicStore(void) {
     bnum = XdrvMailbox.index;
   }
   if (bnum < 0 || bnum > MAX_PICSTORE) {
-    ResponseCmndError();
-    return;
+    return;  // Command Error
   }
 
   // if given 0, then get frame 1 first, and use frame 1 (the first frame, index 0).
@@ -2616,11 +2615,15 @@ int WebcamSavePic(int append) {
 }
 // "WCSAVEPIC1 /temp.jpg" "WCSAVEPIC2 /temp.jpg"
 void CmdWebcamSavePic(){
-  WebcamSavePic(0)? ResponseCmndDone(): ResponseCmndError();
+  if (WebcamSavePic(0)) {
+    ResponseCmndDone();
+  }    
 }
 // "WCAPPENDPIC1 /temp.jpg" "WCAPPENDPIC2 /temp.jpg"
 void CmdWebcamAppendPic(){
-  WebcamSavePic(1)? ResponseCmndDone(): ResponseCmndError();
+  if (WebcamSavePic(1)) {
+    ResponseCmndDone();
+  }
 }
 
 void CmndWebcamMenuVideoDisable(void) {
@@ -3012,7 +3015,10 @@ bool Xdrv99(uint32_t function) {
       WcSetStreamserver(Settings->webcam_config.stream);
       WCStartOperationTask();
       break;
-    case FUNC_SAVE_BEFORE_RESTART: {
+
+    case FUNC_ABOUT_TO_RESTART: {
+      // this code will kill off the cam completely, allowing nice clean restarts
+
       // stop cam clock
 #ifdef WEBCAM_DEV_DEBUG  
       AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: FUNC_SAVE_BEFORE_RESTART"));
@@ -3037,6 +3043,7 @@ bool Xdrv99(uint32_t function) {
       AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: FUNC_SAVE_BEFORE_RESTART after delay"));
 #endif      
     } break;
+
     case FUNC_ACTIVE:
       result = true;
       break;

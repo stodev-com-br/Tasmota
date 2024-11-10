@@ -32,9 +32,18 @@ extern "C" {
 #include "nuttx/lv_nuttx_libuv.h"
 
 #include "evdev/lv_evdev.h"
+#include "libinput/lv_libinput.h"
 
 #include "windows/lv_windows_input.h"
 #include "windows/lv_windows_display.h"
+
+#include "glfw/lv_glfw_window.h"
+#include "glfw/lv_opengles_texture.h"
+#include "glfw/lv_opengles_driver.h"
+
+#include "qnx/lv_qnx.h"
+
+#include "wayland/lv_wayland.h"
 
 /*********************
  *      DEFINES

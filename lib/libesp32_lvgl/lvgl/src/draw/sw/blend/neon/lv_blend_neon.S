@@ -1,5 +1,5 @@
 /**
- * @file lv_blend_to_neon.S
+ * @file lv_blend_neon.S
  *
  */
 
@@ -335,14 +335,14 @@ TMP_Q1      .qn  q14
     vmov.u8         OPA, #0xFF
 .endif
 
-    sub             DST_STRIDE, DST_STRIDE, DST_W
     vmvn            D_A, OPA
 .if dst_bpp == 16
-    lsl             DST_STRIDE, DST_STRIDE, #1
+    sub             DST_STRIDE, DST_STRIDE, DST_W, lsl #1
 .elseif dst_bpp == 24
-    add             DST_STRIDE, DST_STRIDE, DST_STRIDE, lsl #1
+    sub             DST_STRIDE, DST_STRIDE, DST_W
+    sub             DST_STRIDE, DST_STRIDE, DST_W, lsl #1
 .elseif dst_bpp >= 31
-    lsl             DST_STRIDE, DST_STRIDE, #2
+    sub             DST_STRIDE, DST_STRIDE, DST_W, lsl #2
 .endif
 .if src_bpp == 0
     .if mask || opa
@@ -355,14 +355,14 @@ TMP_Q1      .qn  q14
         convert     D, dst_bpp, 1
     .endif
 .else
+.if src_bpp == 16
+    sub             SRC_STRIDE, SRC_STRIDE, DST_W, lsl #1
+.elseif src_bpp == 24
     sub             SRC_STRIDE, SRC_STRIDE, DST_W
-    .if src_bpp == 16
-        lsl         SRC_STRIDE, SRC_STRIDE, #1
-    .elseif src_bpp == 24
-        add         SRC_STRIDE, SRC_STRIDE, SRC_STRIDE, lsl #1
-    .elseif src_bpp >= 31
-        lsl         SRC_STRIDE, SRC_STRIDE, #2
-    .endif
+    sub             SRC_STRIDE, SRC_STRIDE, DST_W, lsl #1
+.elseif src_bpp >= 31
+    sub             SRC_STRIDE, SRC_STRIDE, DST_W, lsl #2
+.endif
 .endif
     mvn             FG_MASK, #0
     mvn             BG_MASK, #0
@@ -641,6 +641,7 @@ TMP_Q1      .qn  q14
 .thumb_func
 .func name
 .global name
+.hidden name
 name&:
     blender     src_bpp, dst_bpp, mask, opa, mode
 .endfunc
@@ -648,15 +649,15 @@ name&:
 
 .macro export_set src, dst, src_bpp, dst_bpp, mode
 .if src == color
-    export lv_&src&_blend_to_&dst&_neon, src_bpp, dst_bpp, 0, 0, mode
-    export lv_&src&_blend_to_&dst&_with_opa_neon, src_bpp, dst_bpp, 0, 1, mode
-    export lv_&src&_blend_to_&dst&_with_mask_neon, src_bpp, dst_bpp, 1, 0, mode
-    export lv_&src&_blend_to_&dst&_mix_mask_opa_neon, src_bpp, dst_bpp, 1, 1, mode
+    export _lv_&src&_blend_to_&dst&_neon, src_bpp, dst_bpp, 0, 0, mode
+    export _lv_&src&_blend_to_&dst&_with_opa_neon, src_bpp, dst_bpp, 0, 1, mode
+    export _lv_&src&_blend_to_&dst&_with_mask_neon, src_bpp, dst_bpp, 1, 0, mode
+    export _lv_&src&_blend_to_&dst&_mix_mask_opa_neon, src_bpp, dst_bpp, 1, 1, mode
 .else
-    export lv_&src&_blend_&mode&_to_&dst&_neon, src_bpp, dst_bpp, 0, 0, mode
-    export lv_&src&_blend_&mode&_to_&dst&_with_opa_neon, src_bpp, dst_bpp, 0, 1, mode
-    export lv_&src&_blend_&mode&_to_&dst&_with_mask_neon, src_bpp, dst_bpp, 1, 0, mode
-    export lv_&src&_blend_&mode&_to_&dst&_mix_mask_opa_neon, src_bpp, dst_bpp, 1, 1, mode
+    export _lv_&src&_blend_&mode&_to_&dst&_neon, src_bpp, dst_bpp, 0, 0, mode
+    export _lv_&src&_blend_&mode&_to_&dst&_with_opa_neon, src_bpp, dst_bpp, 0, 1, mode
+    export _lv_&src&_blend_&mode&_to_&dst&_with_mask_neon, src_bpp, dst_bpp, 1, 0, mode
+    export _lv_&src&_blend_&mode&_to_&dst&_mix_mask_opa_neon, src_bpp, dst_bpp, 1, 1, mode
 .endif
 .endm
 

@@ -7,13 +7,14 @@
  *      INCLUDES
  *********************/
 
-#include "lv_button.h"
+#include "lv_button_private.h"
+#include "../../core/lv_obj_class_private.h"
 #if LV_USE_BUTTON != 0
 
 /*********************
  *      DEFINES
  *********************/
-#define MY_CLASS &lv_button_class
+#define MY_CLASS (&lv_button_class)
 
 /**********************
  *      TYPEDEFS

@@ -459,7 +459,7 @@ void ZbSendReportWrite(class JsonParserToken val_pubwrite, class ZCLFrame & zcl)
         if (!attr_discrete) {
           int32_t res = encodeSingleAttribute(buf, val_d, val_str, attr.attr_type);
           if (res < 0) {
-            Response_P(PSTR("{\"%s\":\"%s'%s' 0x%02X\"}"), XdrvMailbox.command, PSTR(D_ZIGBEE_UNSUPPORTED_ATTRIBUTE_TYPE " "), key, attr.attr_type);
+            Response_P(PSTR("{\"%s\":\"%s'%s' 0x%02X\"}"), XdrvMailbox.command, PSTR(D_ZIGBEE_UNSUPPORTED_ATTRIBUTE_TYPE " "), key.getStr(), attr.attr_type);
             return;
           }
         }
@@ -1172,8 +1172,6 @@ void CmndZbName(void) {
   //
   // Where <device_id> can be: short_addr, long_addr, device_index, friendly_name
 
-  if (zigbee.init_phase) { ResponseCmndChar_P(PSTR(D_ZIGBEE_NOT_STARTED)); return; }
-
   // check if parameters contain a comma ','
   char *p = XdrvMailbox.data;
   char *device_id = strsep(&p, ",");       // zigbee identifier
@@ -1214,8 +1212,6 @@ void CmndZbModelId(void) {
   //
   // Where <device_id> can be: short_addr, long_addr, device_index, friendly_name
 
-  if (zigbee.init_phase) { ResponseCmndChar_P(PSTR(D_ZIGBEE_NOT_STARTED)); return; }
-
   // check if parameters contain a comma ','
   char *p;
   strtok_r(XdrvMailbox.data, ",", &p);
@@ -1240,8 +1236,6 @@ void CmndZbLight(void) {
   //  ZbLight <device_id>                - display the current bulb type and status
   //
   // Where <device_id> can be: short_addr, long_addr, device_index, friendly_name
-
-  if (zigbee.init_phase) { ResponseCmndChar_P(PSTR(D_ZIGBEE_NOT_STARTED)); return; }
 
   // check if parameters contain a comma ','
   char *p = XdrvMailbox.data;
@@ -1287,8 +1281,6 @@ void CmndZbOccupancy(void) {
   // 0x8 = 120 s
   // Where <device_id> can be: short_addr, long_addr, device_index, friendly_name
 
-  if (zigbee.init_phase) { ResponseCmndChar_P(PSTR(D_ZIGBEE_NOT_STARTED)); return; }
-
   // check if parameters contain a comma ','
   char *p;
   strtok_r(XdrvMailbox.data, ",", &p);
@@ -1320,7 +1312,6 @@ void CmndZbOccupancy(void) {
 // Remove an old Zigbee device from the list of known devices, use ZigbeeStatus to know all registered devices
 //
 void CmndZbForget(void) {
-  if (zigbee.init_phase) { ResponseCmndChar_P(PSTR(D_ZIGBEE_NOT_STARTED)); return; }
   Z_Device & device = zigbee_devices.parseDeviceFromName(XdrvMailbox.data, nullptr, nullptr, XdrvMailbox.payload);  // in case of short_addr, it must be already registered
   if (!device.valid()) { ResponseCmndChar_P(PSTR(D_ZIGBEE_UNKNOWN_DEVICE)); return; }
 
@@ -1342,7 +1333,6 @@ void CmndZbInfo_inner(const Z_Device & device) {
     device.jsonPublishAttrList(PSTR(D_JSON_ZIGBEE_INFO), attr_list);         // publish as ZbReceived
 }
 void CmndZbInfo(void) {
-  if (zigbee.init_phase) { ResponseCmndChar_P(PSTR(D_ZIGBEE_NOT_STARTED)); return; }
   TrimSpace(XdrvMailbox.data);
 
   if (strlen(XdrvMailbox.data) == 0) {
@@ -1369,7 +1359,6 @@ void CmndZbInfo(void) {
 // Save Zigbee information to flash
 //
 void CmndZbSave(void) {
-  if (zigbee.init_phase) { ResponseCmndChar_P(PSTR(D_ZIGBEE_NOT_STARTED)); return; }
   switch (XdrvMailbox.payload) {
     case 2:       // save only data
       hibernateAllData();
@@ -1404,8 +1393,6 @@ void CmndZbLoad(void) {
   }
   if (ret) {
     ResponseCmndDone();
-  } else {
-    ResponseCmndError();
   }
 }
 
@@ -1420,8 +1407,6 @@ void CmndZbUnload(void) {
   bool ret = ZbUnload(XdrvMailbox.data);
   if (ret) {
     ResponseCmndDone();
-  } else {
-    ResponseCmndError();
   }
 }
 
@@ -1515,8 +1500,6 @@ void CmndZbenroll(void) {
     Z_SendCIEZoneEnrollResponse(device.shortaddr, 0, 500, enrollEndpoint, 1);
     
     ResponseCmndDone();
-  } else {
-    ResponseCmndError();
   }
 }
 
@@ -1533,8 +1516,6 @@ void CmndZbCIE(void) {
     Z_WriteCIEAddress(device.shortaddr, 0, 500, enrollEndpoint, 0);
     
     ResponseCmndDone();
-  } else {
-    ResponseCmndError();
   }
 }
 
@@ -1565,8 +1546,6 @@ void CmndZbEmulation(void) {
     }
     
     ResponseCmndDone();
-  } else {
-    ResponseCmndError();
   }
 }
 
@@ -1578,7 +1557,6 @@ void CmndZbEmulation(void) {
 //   ZbRestore [{"Device":"0x5ADF","Name":"Petite_Lampe","IEEEAddr":"0x90FD9FFFFE03B051","ModelId":"TRADFRI bulb E27 WS opal 980lm","Manufacturer":"IKEA of Sweden","Endpoints":["0x01","0xF2"]}]
 //   ZbRestore {"Device":"0x5ADF","Name":"Petite_Lampe","IEEEAddr":"0x90FD9FFFFE03B051","ModelId":"TRADFRI bulb E27 WS opal 980lm","Manufacturer":"IKEA of Sweden","Endpoints":["0x01","0xF2"]}
 void CmndZbRestore(void) {
-  if (zigbee.init_phase) { ResponseCmndChar_P(PSTR(D_ZIGBEE_NOT_STARTED)); return; }
   TrimSpace(XdrvMailbox.data);
 
   if (strlen(XdrvMailbox.data) == 0) {
@@ -1795,34 +1773,31 @@ void ZigbeePermitJoinUpdate(void) {
 // 1.b. `ZbStatus Room` - Show single device shortaddr and name `{"ZbStatus1":[{"Device":"0x868E","Name":"Room"}]}`
 // 2.   `ZbStatus2 Room` - Show detailed information of device `{"ZbStatus2":[{"Device":"0x868E","Name":"Room","IEEEAddr":"0x90FD9FFFFE03B051","ModelId":"TRADFRI bulb E27 WS opal 980lm","Manufacturer":"IKEA of Sweden","Endpoints":[1,242],"Config":["L01.2","O01"]}]}`
 void CmndZbStatus(void) {
-  if (ZigbeeSerial) {
-    if (zigbee.init_phase) { ResponseCmndChar_P(PSTR(D_ZIGBEE_NOT_STARTED)); return; }
-    String dump;
+  TrimSpace(XdrvMailbox.data);
+  String dump;
 
-    if (0 == XdrvMailbox.index) {     // Case 0
-      dump = zigbee_devices.dumpCoordinator();
+  if (0 == XdrvMailbox.index) {     // Case 0
+    dump = zigbee_devices.dumpCoordinator();
+  } else {
+    Z_Device & device = zigbee_devices.parseDeviceFromName(XdrvMailbox.data, nullptr, nullptr, XdrvMailbox.payload);
+    if (XdrvMailbox.data_len > 0) {
+      if (!device.valid()) { ResponseCmndChar_P(PSTR(D_ZIGBEE_UNKNOWN_DEVICE)); return; }
+      // case 1.b and 2.
+      dump = zigbee_devices.dumpDevice(XdrvMailbox.index, device);
     } else {
-      Z_Device & device = zigbee_devices.parseDeviceFromName(XdrvMailbox.data, nullptr, nullptr, XdrvMailbox.payload);
-      if (XdrvMailbox.data_len > 0) {
-        if (!device.valid()) { ResponseCmndChar_P(PSTR(D_ZIGBEE_UNKNOWN_DEVICE)); return; }
-        // case 1.b and 2.
-        dump = zigbee_devices.dumpDevice(XdrvMailbox.index, device);
-      } else {
-        if (XdrvMailbox.index >= 2) { ResponseCmndChar_P(PSTR(D_ZIGBEE_UNKNOWN_DEVICE)); return; }
-        // case 1.a
-        dump = zigbee_devices.dumpDevice(XdrvMailbox.index, device_unk);
-      }
+      if (XdrvMailbox.index >= 2) { ResponseCmndChar_P(PSTR(D_ZIGBEE_UNKNOWN_DEVICE)); return; }
+      // case 1.a
+      dump = zigbee_devices.dumpDevice(XdrvMailbox.index, device_unk);
     }
-
-    Response_P(PSTR("{\"%s%d\":%s}"), XdrvMailbox.command, XdrvMailbox.index, dump.c_str());
   }
+
+  Response_P(PSTR("{\"%s%d\":%s}"), XdrvMailbox.command, XdrvMailbox.index, dump.c_str());
 }
 
 //
 // Command `ZbData`
 //
 void CmndZbData(void) {
-  if (zigbee.init_phase) { ResponseCmndChar_P(PSTR(D_ZIGBEE_NOT_STARTED)); return; }
   TrimSpace(XdrvMailbox.data);
 
   if (strlen(XdrvMailbox.data) == 0) {
@@ -1867,7 +1842,6 @@ void CmndZbConfig(void) {
   uint64_t    zb_precfgkey_h = Settings->zb_precfgkey_h;
   int8_t      zb_txradio_dbm = Settings->zb_txradio_dbm;
 
-  // if (zigbee.init_phase) { ResponseCmndChar_P(PSTR(D_ZIGBEE_NOT_STARTED)); return; }
   TrimSpace(XdrvMailbox.data);
   if (strlen(XdrvMailbox.data) > 0) {
     JsonParser parser(XdrvMailbox.data);
@@ -2224,10 +2198,10 @@ void ZigbeeShow(bool json)
   if (json) {
     return;
 #ifdef USE_WEBSERVER
-  } else {
+  } else {        
     UnishoxStrings msg(ZB_WEB);
     uint32_t zigbee_num = zigbee_devices.devicesSize();
-    if (zigbee_num > 0) {
+    if ((zigbee_num > 0) && (!zigbee.init_phase)) {     // don't displays devices on UI if still in initialization phase
       if (zigbee_num > 255) { zigbee_num = 255; }
 
       WSContentSend_P(msg[ZB_WEB_CSS], WebColor(COL_TEXT));
@@ -2485,6 +2459,9 @@ bool Xdrv23(uint32_t function) {
   if (TasmotaGlobal.gpio_optiona.enable_ccloader) { return false; }
 
   bool result = false;
+  if (!zigbee.active && (FUNC_PRE_INIT == function)) {
+    ZigbeeInit();
+  }
 
   if (zigbee.active) {
     switch (function) {
@@ -2521,9 +2498,6 @@ bool Xdrv23(uint32_t function) {
         WebServer_on(PSTR("/zbr"), ZigbeeMapRefresh, HTTP_GET);     // add web handler for Zigbee map refresh
         break;
 #endif  // USE_WEBSERVER
-      case FUNC_PRE_INIT:
-        ZigbeeInit();
-        break;
       case FUNC_COMMAND:
         result = DecodeCommand(kZbCommands, ZigbeeCommand, kZbSynonyms);
         break;

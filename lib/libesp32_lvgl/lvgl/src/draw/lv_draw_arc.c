@@ -6,6 +6,7 @@
 /*********************
  *      INCLUDES
  *********************/
+#include "lv_draw_private.h"
 #include "../core/lv_obj.h"
 #include "lv_draw_arc.h"
 #include "../core/lv_obj_event.h"
@@ -41,6 +42,12 @@ void lv_draw_arc_dsc_init(lv_draw_arc_dsc_t * dsc)
     dsc->width = 1;
     dsc->opa = LV_OPA_COVER;
     dsc->color = lv_color_black();
+    dsc->base.dsc_size = sizeof(lv_draw_arc_dsc_t);
+}
+
+lv_draw_arc_dsc_t * lv_draw_task_get_arc_dsc(lv_draw_task_t * task)
+{
+    return task->type == LV_DRAW_TASK_TYPE_ARC ? (lv_draw_arc_dsc_t *)task->draw_dsc : NULL;
 }
 
 void lv_draw_arc(lv_layer_t * layer, const lv_draw_arc_dsc_t * dsc)

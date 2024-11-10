@@ -29,11 +29,16 @@
  *  3          PWM3       RGB    no         (H801, MagicHome and Arilux LC01)
  *  4          PWM4       RGBW   no         (H801, MagicHome and Arilux)
  *  5          PWM5       RGBCW  yes        (H801, Arilux LC11)
- *  9          reserved          no
- * 10          reserved          yes
+ *  6          PWM6
+ *  7          PWM7
+ *  8          reserved
+ *  9          SERIAL1           no
+ * 10          SERIAL2           yes
  * 11          +WS2812    RGB    no         (One WS2812 RGB or RGBW ledstrip)
  * 12          AiLight    RGBW   no
  * 13          Sonoff B1  RGBCW  yes
+ * 14          reserved
+ * 15          reserved
  *
  * light_scheme  WS2812  3+ Colors  1+2 Colors  Effect
  * ------------  ------  ---------  ----------  -----------------
@@ -1549,6 +1554,9 @@ void LightPreparePower(power_t channels = 0xFFFFFFFF) {    // 1 = only RGB, 2 = 
   #ifdef USE_DOMOTICZ
         DomoticzUpdatePowerState(Light.device + i);
   #endif  // USE_DOMOTICZ
+  #ifdef USE_KNX
+        KnxUpdateLight();
+  #endif
       }
     }
   } else {
@@ -1585,6 +1593,9 @@ void LightPreparePower(power_t channels = 0xFFFFFFFF) {    // 1 = only RGB, 2 = 
 #ifdef USE_DOMOTICZ
     DomoticzUpdatePowerState(Light.device);
 #endif  // USE_DOMOTICZ
+#ifdef USE_KNX
+    KnxUpdateLight();
+#endif
   }
 
   if (Settings->flag3.hass_tele_on_power) {  // SetOption59 - Send tele/%topic%/STATE in addition to stat/%topic%/RESULT
@@ -2412,7 +2423,6 @@ void calcGammaBulbs(uint16_t cur_col_10[5]) {
   if (ChannelCT() >= 0) {
     // Need to compute white_bri10 and ct_10 from cur_col_10[] for compatibility with VirtualCT
     white_bri10 = cur_col_10[cw0] + cur_col_10[cw0+1];
-    ct_10 = changeUIntScale(cur_col_10[cw0+1], 0, white_bri10, 0, 1023);
     if (white_bri10 > 1023) {
       // In white_free_cw mode, the combined brightness of cw and ww may be larger than 1023.
       // This cannot be represented in pwm_ct_mode, so we set the maximum brightness instead.

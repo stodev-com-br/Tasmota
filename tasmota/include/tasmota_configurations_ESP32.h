@@ -21,6 +21,7 @@
 #define _TASMOTA_CONFIGURATIONS_ESP32_H_
 
 #ifdef ESP32
+#include "sdkconfig.h"
 
 /*********************************************************************************************\
  * [tasmota32x-safeboot.bin]
@@ -185,26 +186,19 @@
 #define USE_WEBSERVER
 #define USE_WEBCLIENT
 #define USE_WEBCLIENT_HTTPS
-#define USE_SERIAL_BRIDGE                        // Add support for software Serial Bridge console Tee (+2k code)
-#define USE_ETHERNET
+
+#undef USE_ESP32_WDT                                  // disable watchdog on SAFEBOOT until more testing is done
+
+#if CONFIG_IDF_TARGET_ESP32
+#if CONFIG_FREERTOS_UNICORE
+  #undef USE_MQTT_TLS
+//  #define USE_SERIAL_BRIDGE                        // Add support for software Serial Bridge console Tee (+4.5k code)
+  #define USE_SPI                                    // Make SPI Ethernet adapters useable (+124 bytes)
+  #define USE_ETHERNET
+#endif  // CONFIG_FREERTOS_UNICORE
+#endif  // CONFIG_IDF_TARGET_ESP32
 
 #endif  // FIRMWARE_SAFEBOOT
-
-/*********************************************************************************************\
- * FIRMWARE_ARDUINO30
- * Provide an image which compiles with WiP Arduino 3.0.x
-\*********************************************************************************************/
-
-#ifdef FIRMWARE_ARDUINO30
-
-#ifndef CODE_IMAGE_STR
-  #define CODE_IMAGE_STR "arduino30"
-#endif
-
-#define FIRMWARE_TASMOTA32
-
-#endif  // FIRMWARE_ARDUINO30
-
 
 /*********************************************************************************************\
  * [tasmota32-webcam.bin]
@@ -313,27 +307,23 @@
 #define USE_I2S
 #define USE_SPI
 #define USE_LVGL
-#define USE_LVGL_HASPMOTA
-#define USE_LVGL_FREETYPE
   #undef SET_ESP32_STACK_SIZE
   #define SET_ESP32_STACK_SIZE (24 * 1024)
-#define USE_LVGL_PNG_DECODER
 #define USE_DISPLAY
-#define SHOW_SPLASH
-#define USE_XPT2046
-#define USE_FT5206
-#define USE_GT911
-#define USE_CST816S
 #define USE_MPU_ACCEL
 #define USE_RTC_CHIPS                            // Enable RTC chip support and NTP server - Select only one
   #define USE_BM8563
 #define USE_MLX90614
 #define USE_UNIVERSAL_DISPLAY
+#define USE_UNIVERSAL_TOUCH
+//#define USE_XPT2046
+//#define USE_FT5206
+//#define USE_GT911
+//#define USE_CST816S
 #define USE_DISPLAY_LVGL_ONLY
 
 //#undef USE_DISPLAY_MODES1TO5
 #undef USE_DISPLAY_LCD
-#undef USE_DISPLAY_SSD1306
 #undef USE_DISPLAY_MATRIX
 #undef USE_DISPLAY_SEVENSEG
 
@@ -710,6 +700,10 @@
 //#define USE_CANSNIFFER                         // Add support for can bus sniffer using MCP2515 (+5k code)
 #define USE_MCP23XXX_DRV                         // [I2cDriver77] Enable MCP23xxx support as virtual switch/button/relay (+3k(I2C)/+5k(SPI) code)
 #define USE_SHELLY_PRO                           // Add support for Shelly Pro
+#define USE_SPI_LORA                           // Add support for LoRaSend and LoRaCommand (+4k code)
+  #define USE_LORA_SX126X                      // Add driver support for LoRa on SX126x based devices like LiliGo T3S3 Lora32 (+16k code)
+  #define USE_LORA_SX127X                      // Add driver support for LoRa on SX127x based devices like M5Stack LoRa868, RFM95W (+5k code)
+  #define USE_LORAWAN_BRIDGE                   // Add support for LoRaWan bridge (+8k code)
 
 #define USE_MHZ19                                // Add support for MH-Z19 CO2 sensor (+2k code)
 #define USE_SENSEAIR                             // Add support for SenseAir K30, K70 and S8 CO2 sensor (+2k3 code)
@@ -770,6 +764,7 @@
 #define USE_SONOFF_SPM                           // Add support for ESP32 based Sonoff Smart Stackable Power Meter (+11k code)
 #define USE_MODBUS_ENERGY                        // Add support for generic modbus energy monitor using a user file in rule space (+5k code)
 //#define USE_BIOPDU                               // Add support for BioPDU 625x12 6-channel energy monitor
+#define USE_BL0906                               // Add support for BL0906 up to 6 channel Energy monitor as used in Athom EM2/EM6
 
 #define USE_DHT                                  // Add support for DHT11, AM2301 (DHT21, DHT22, AM2302, AM2321) and SI7021 Temperature and Humidity sensor
 #define USE_MAX31855                             // Add support for MAX31855 K-Type thermocouple sensor using softSPI
@@ -830,6 +825,14 @@
   #define USE_BERRY_CRYPTO_SPAKE2P_MATTER
 
 #endif // USE_MATTER_DEVICE
+
+/*********************************************************************************************\
+ * Post-process compile options for esp32-c2
+\*********************************************************************************************/
+
+#ifdef CONFIG_IDF_TARGET_ESP32C2
+  #undef USE_ETHERNET
+#endif  // CONFIG_IDF_TARGET_ESP32C2
 
 #endif  // ESP32
 #endif  // _TASMOTA_CONFIGURATIONS_ESP32_H_
