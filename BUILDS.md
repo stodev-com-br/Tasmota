@@ -14,10 +14,13 @@ Note: the `minimal` variant is not listed as it shouldn't be used outside of the
 | USE_HOME_ASSISTANT        | -     | - / - | -     | -     | -     | -     |
 | USE_TASMOTA_DISCOVERY     | x     | x / x | x     | x     | x     | x     |
 | USE_MQTT_TLS\*            | -     | - / x | -     | -     | -     | -     |
+| USE_MQTT_CLIENT_CERT      | -     | - / - | -     | -     | -     | -     |
 | USE_MQTT_AWS_IOT          | -     | - / - | -     | -     | -     | -     |
 | USE_4K_RSA                | -     | - / - | -     | -     | -     | -     |
 | USE_TELEGRAM              | -     | - / - | -     | -     | -     | -     |
 | USE_KNX                   | -     | - / x | x     | -     | -     | -     |
+| USE_TELNET                | -     | - / - | -     | -     | -     | -     |
+| USE_XYZMODEM              | -     | - / - | -     | -     | -     | -     |
 | USE_WEBSERVER             | x     | x / x | x     | x     | x     | x     |
 | USE_WEBSEND_RESPONSE      | -     | - / - | -     | -     | -     | -     |
 | USE_EMULATION_HUE         | x     | x / x | -     | x     | -     | -     |
@@ -30,9 +33,8 @@ Note: the `minimal` variant is not listed as it shouldn't be used outside of the
 | USE_SUNRISE               | x     | x / x | x     | x     | x     | x     |
 | USE_RULES                 | x     | x / x | x     | x     | x     | x     |
 | USE_SCRIPT                | -     | - / - | -     | -     | -     | -     |
-| USE_EXPRESSION            | -     | x / x | -     | -     | -     | -     |
-| SUPPORT_IF_STATEMENT      | -     | x / x | -     | -     | -     | -     |
 | USE_HOTPLUG               | -     | - / - | -     | -     | -     | -     |
+| USE_INFLUXDB              | -     | - / x | -     | -     | -     | -     |
 | USE_PROMETHEUS            | -     | - / - | -     | -     | -     | -     |
 | USE_PING                  | -     | - / - | -     | -     | -     | -     |
 | USE_HDMI_CEC              | -     | - / - | -     | -     | -     | -     |
@@ -105,10 +107,13 @@ Note: the `minimal` variant is not listed as it shouldn't be used outside of the
 | **Feature or Sensor**     | **l** | **t** | **k** | **s** | **i** | **d** | **Remarks**                 |
 | USE_I2C                   | -     | x / x | x     | x     | -     | x     |
 | USE_RTC_CHIPS             | -     | - / x | -     | -     | -     | -     |
-| -USE_DS3231               | -     | - / - | -     | -     | -     | -     |
 | -USE_BM8563               | -     | - / x | -     | -     | -     | -     |
+| -USE_DS3231               | -     | - / - | -     | -     | -     | -     |
+| -USE_PCF85063             | -     | - / - | -     | -     | -     | -     |
 | -USE_PCF85363             | -     | - / - | -     | -     | -     | -     |
 | -USE_RX8010               | -     | - / - | -     | -     | -     | -     |
+| -USE_RX8025               | -     | - / - | -     | -     | -     | -     |
+| -USE_RX8030               | -     | - / - | -     | -     | -     | -     |
 | USE_SHT                   | -     | - / x | -     | x     | -     | -     |
 | USE_HTU                   | -     | - / x | -     | x     | -     | -     |
 | USE_BMP                   | -     | - / x | -     | x     | -     | -     |
@@ -130,6 +135,7 @@ Note: the `minimal` variant is not listed as it shouldn't be used outside of the
 | USE_SGP40                 | -     | - / x | -     | x     | -     | -     |
 | USE_SGP4X                 | -     | - / x | -     | -     | -     | -     |
 | USE_SEN5X                 | -     | - / x | -     | x     | -     | -     |
+| USE_SEN6X                 | -     | - / x | -     | -     | -     | -     |
 | USE_SI1145                | -     | - / - | -     | -     | -     | -     |
 | USE_LM75AD                | -     | - / x | -     | x     | -     | -     |
 | USE_APDS9960              | -     | - / - | -     | -     | -     | -     |
@@ -162,6 +168,8 @@ Note: the `minimal` variant is not listed as it shouldn't be used outside of the
 | USE_GDK101                | -     | - / - | -     | -     | -     | -     |
 | USE_TC74                  | -     | - / - | -     | -     | -     | -     |
 | USE_PCA9557               | -     | - / - | -     | -     | -     | -     |
+| USE_TCA9554               | -     | - / - | -     | -     | -     | -     |
+| USE_AGS02MA               | -     | - / - | -     | -     | -     | -     |
 |                           |       |       |       |       |       |       |
 | **Feature or Sensor**     | **l** | **t** | **k** | **s** | **i** | **d** | **Remarks**                 |
 | USE_HIH6                  | -     | - / x | -     | x     | -     | -     |
@@ -227,12 +235,15 @@ Note: the `minimal` variant is not listed as it shouldn't be used outside of the
 | USE_MIEL_HVAC             | -     | - / - | -     | -     | -     | -     |
 | USE_PROJECTOR_CTRL        | -     | - / - | -     | -     | -     | -     |
 | USE_AS608                 | -     | - / - | -     | -     | -     | -     |
+| USE_LD2402                | -     | - / - | -     | -     | -     | -     |
 | USE_LD2410                | -     | - / - | -     | -     | -     | -     |
+| USE_LD2410S               | -     | - / - | -     | -     | -     | -     |
 | USE_GM861                 | -     | - / - | -     | -     | -     | -     |
 | USE_TCP_BRIDGE            | -     | - / - | -     | -     | -     | -     | zbbridge / zbbrdgpro        |
 | USE_HC8                   | -     | - / - | -     | -     | -     | -     |
 | USE_PIPSOLAR              | -     | - / - | -     | -     | -     | -     |
 | USE_WOOLIIS               | -     | - / - | -     | -     | -     | -     |
+| USE_C8_CO2_5K             | -     | - / - | -     | -     | -     | -     |
 |                           |       |       |       |       |       |       |
 | USE_NRF24                 | -     | - / - | -     | -     | -     | -     |
 | USE_MIBLE                 | -     | - / - | -     | -     | -     | -     |
@@ -244,11 +255,14 @@ Note: the `minimal` variant is not listed as it shouldn't be used outside of the
 | USE_IR_RECEIVE            | -     | x / - | x     | x     | x     | x     |
 | USE_IR_REMOTE_FULL        | -     | - / - | -     | -     | x     | -     | Enable ALL protocols        |
 |                           |       |       |       |       |       |       |
+| USE_WIZMOTE               | -     | - / - | -     | -     | -     | -     |
+|                           |       |       |       |       |       |       |
 | USE_SR04                  | -     | - / - | -     | x     | -     | -     |
 | USE_ME007                 | -     | - / - | -     | -     | -     | -     |
 | USE_DYP                   | -     | - / - | -     | -     | -     | -     |
 | USE_TM1638                | -     | - / x | -     | x     | -     | -     |
 | USE_HX711                 | -     | - / x | -     | x     | -     | -     |
+| -USE_HX711_M5SCALES       | -     | - / - | -     | -     | -     | -     |
 | USE_TX2x_WIND_SENSOR      | -     | - / - | -     | -     | -     | -     |
 | USE_WINDMETER             | -     | - / - | -     | -     | -     | -     |
 | USE_RC_SWITCH             | -     | - / x | -     | x     | -     | -     |
@@ -283,7 +297,8 @@ Note: the `minimal` variant is not listed as it shouldn't be used outside of the
 | USE_SONOFF_SPM            |       | / x   |       |       |       |       |
 | USE_DISPLAY_TM1621_SONOFF |       | / x   |       |       |       |       |
 | USE_SHELLY_PRO            |       | / x   |       |       |       |       |
-| USE_DALI                  |       | / -   |       |       |       |       |
+| USE_ESP32_TWAI            |       | / x   |       |       |       |       |
+| USE_DALI                  |       | / x   |       |       |       |       |
 | USE_DINGTIAN_RELAY        |       | / -   |       |       |       |       |
 | USE_MATTER_DEVICE         |       | / x   |       |       |       |       | See SetOption151            |
 

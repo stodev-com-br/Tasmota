@@ -18,7 +18,7 @@
 */
 
 // Location specific includes
-#ifndef ESP32_STAGE                         // ESP32 Stage has no core_version.h file. Disable include via PlatformIO Option
+#if __has_include("core_version.h")         // ESP32 Stage has no core_version.h file. Disable include via PlatformIO Option
 #include <core_version.h>                   // Arduino_Esp8266 version information (ARDUINO_ESP8266_RELEASE and ARDUINO_ESP8266_RELEASE_2_7_1)
 #endif  // ESP32_STAGE
 #include "include/tasmota_compat.h"
@@ -208,11 +208,12 @@ WiFiUDP PortUdp;                            // UDP Syslog and Alexa
 #ifdef ESP32
 /*
 #if CONFIG_IDF_TARGET_ESP32C3 ||            // support USB via HWCDC using JTAG interface
+    CONFIG_IDF_TARGET_ESP32C5 ||            // support USB via HWCDC using JTAG interface
     CONFIG_IDF_TARGET_ESP32C6 ||            // support USB via HWCDC using JTAG interface
     CONFIG_IDF_TARGET_ESP32S2 ||            // support USB via USBCDC
     CONFIG_IDF_TARGET_ESP32S3               // support USB via HWCDC using JTAG interface or USBCDC
 */
-#if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
+#if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32P4
 
 //#if CONFIG_TINYUSB_CDC_ENABLED              // This define is not recognized here so use USE_USB_CDC_CONSOLE
 #ifdef USE_USB_CDC_CONSOLE
@@ -267,7 +268,9 @@ struct TasmotaGlobal_t {
   uint32_t zc_code_offset;                  // Zero cross moment offset due to executing power code (microseconds)
   uint32_t zc_interval;                     // Zero cross interval around 8333 (60Hz) or 10000 (50Hz) (microseconds)
   GpioOptionABits gpio_optiona;             // GPIO Option_A flags
+#ifdef ESP32
   void *log_buffer_mutex;                   // Control access to log buffer
+#endif
 
   power_t power;                            // Current copy of Settings->power
   power_t power_latching;                   // Current state of single pin latching power
@@ -312,11 +315,11 @@ struct TasmotaGlobal_t {
   bool stop_flash_rotate;                   // Allow flash configuration rotation
   bool blinkstate;                          // LED state
   bool pwm_present;                         // Any PWM channel configured with SetOption15 0
-  bool i2c_enabled;                         // I2C configured
-  bool i2c_enabled_2;                       // I2C configured, second controller, Wire1
+  bool i2c_enabled[2];                      // I2C configured for all possible buses (1 or 2)
 #ifdef ESP32
+  bool camera_initialized;                  // For esp32-webcam, to be used in discovery
   bool ota_factory;                         // Select safeboot binary
-#endif
+#endif  // ESP32
   bool ntp_force_sync;                      // Force NTP sync
   bool skip_light_fade;                     // Temporarily skip light fading
   bool restart_halt;                        // Do not restart but stay in wait loop
@@ -327,6 +330,7 @@ struct TasmotaGlobal_t {
 
   uint8_t user_globals[3];                  // User set global temp/hum/press
   uint8_t busy_time;                        // Time in ms to allow executing of time critical functions
+  uint8_t skip_sleep;                       // Skip sleep loops
   uint8_t init_state;                       // Tasmota init state
   uint8_t heartbeat_inverted;               // Heartbeat pulse inverted flag
   uint8_t spi_enabled;                      // SPI configured (bus1)
@@ -368,6 +372,7 @@ struct TasmotaGlobal_t {
   uint8_t restore_powered_off_led_counter;  // Seconds before powered-off LED (LEDLink) is restored
   uint8_t pwm_dimmer_led_bri;               // Adjusted brightness LED level
 #endif  // USE_PWM_DIMMER
+
   String mqtt_data;                         // Buffer filled by Response functions
   char version[16];                         // Composed version string like 255.255.255.255
   char image_name[33];                      // Code image and/or commit
@@ -383,6 +388,7 @@ struct TasmotaGlobal_t {
 #endif  // PIO_FRAMEWORK_ARDUINO_MMU_CACHE16_IRAM48_SECHEAP_SHARED
 
 #ifdef USE_BERRY
+  bool berry_deferred_ready = false;        // is there an deferred Berry function to be called at next millisecond
   bool berry_fast_loop_enabled = false;     // is Berry fast loop enabled, i.e. control is passed at each loop iteration
 #endif  // USE_BERRY
 } TasmotaGlobal = { 0 };
@@ -409,17 +415,23 @@ void setup(void) {
   DisableBrownout();      // Workaround possible weak LDO resulting in brownout detection during Wifi connection
 #endif  // DISABLE_ESP32_BROWNOUT
 
-  // restore GPIO16/17 if no PSRAM is found
+#ifndef FIRMWARE_SAFEBOOT
+#ifndef DISABLE_PSRAMCHECK
+#ifndef CORE32SOLO1
+  // restore GPIO5/18 or 16/17 if no PSRAM is found which may be used by Ethernet among others
   if (!FoundPSRAM()) {
     // test if the CPU is not pico
     uint32_t pkg_version = bootloader_common_get_chip_ver_pkg();
     if (pkg_version <= 3) {         // D0WD, S0WD, D2WD
-      gpio_reset_pin(GPIO_NUM_16);  // D0WD_PSRAM_CS_IO
-      gpio_reset_pin(GPIO_NUM_17);  // D0WD_PSRAM_CLK_IO
+      gpio_reset_pin((gpio_num_t)CONFIG_D0WD_PSRAM_CS_IO);
+      gpio_reset_pin((gpio_num_t)CONFIG_D0WD_PSRAM_CLK_IO);
       // IDF5.3 fix esp_gpio_reserve used in init PSRAM
-      esp_gpio_revoke(BIT64(GPIO_NUM_16) | BIT64(GPIO_NUM_17));
+      esp_gpio_revoke(BIT64(CONFIG_D0WD_PSRAM_CS_IO) | BIT64(CONFIG_D0WD_PSRAM_CLK_IO));
     }
   }
+#endif  // CORE32SOLO1
+#endif  // DISABLE_PSRAMCHECK
+#endif  // FIRMWARE_SAFEBOOT
 #endif  // CONFIG_IDF_TARGET_ESP32
 #endif  // ESP32
 
@@ -484,7 +496,7 @@ void setup(void) {
   }
 
 #ifdef ESP32
-#if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
+#if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32P4
 #ifdef USE_USB_CDC_CONSOLE
 
   bool is_connected_to_USB = false;
@@ -563,6 +575,7 @@ void setup(void) {
 
   SettingsLoad();
   SettingsDelta();
+  SettingsMinimum();                           // Set life-saving parameters if out-of-range due to reconfig Settings Area
 
   OsWatchInit();
 
@@ -623,6 +636,7 @@ void setup(void) {
         Settings->rule_enabled = 0;                  // Disable all rules
         Settings->flag3.shutter_mode = 0;            // disable shutter support
         TasmotaGlobal.no_autoexec = true;
+        Settings->flag5.mi32_enable = false;         // disable BLE
       }
       if (RtcReboot.fast_reboot_count > Settings->param[P_BOOT_LOOP_OFFSET] +3) {  // Restarted 5 times
         for (uint32_t i = 0; i < nitems(Settings->my_gp.io); i++) {
@@ -634,6 +648,17 @@ void setup(void) {
 //        Settings->last_module = Settings->fallback_module;
       }
       AddLog(LOG_LEVEL_INFO, PSTR("FRC: " D_LOG_SOME_SETTINGS_RESET " (%d)"), RtcReboot.fast_reboot_count);
+#ifdef ESP32
+#ifndef FIRMWARE_MINIMAL
+      if (RtcReboot.fast_reboot_count > Settings->param[P_BOOT_LOOP_OFFSET] +8) {  // Restarted 10 times
+        if (EspPrepSwitchPartition(0)) {             // Switch to safeboot
+          RtcReboot.fast_reboot_count = 0;           // Reset for next user restart
+          RtcRebootSave();
+          EspRestart();                              // Restart in safeboot mode
+        }
+      }
+#endif  // FIRMWARE_MINIMAL
+#endif  // ESP32
     }
   }
 
@@ -648,7 +673,6 @@ void setup(void) {
   // Github inserts "release" or "commit number" before compiling using sed -i -e 's/TASMOTA_SHA_SHORT/TASMOTA_SHA_SHORT 85cff52-/g' tasmota_version.h
   snprintf_P(TasmotaGlobal.image_name, sizeof(TasmotaGlobal.image_name), PSTR("(" STR(TASMOTA_SHA_SHORT) "%s)"), PSTR(CODE_IMAGE_STR));  // Results in (85cff52-tasmota) or (release-tasmota)
 
-  Format(TasmotaGlobal.mqtt_client, SettingsText(SET_MQTT_CLIENT), sizeof(TasmotaGlobal.mqtt_client));
   Format(TasmotaGlobal.mqtt_topic, SettingsText(SET_MQTT_TOPIC), sizeof(TasmotaGlobal.mqtt_topic));
   if (strchr(SettingsText(SET_HOSTNAME), '%') != nullptr) {
     SettingsUpdateText(SET_HOSTNAME, WIFI_HOSTNAME);
@@ -737,11 +761,18 @@ void BacklogLoop(void) {
   }
 }
 
+void SleepSkip(void) {
+  TasmotaGlobal.skip_sleep = 250;     // Skip sleep for 250 loops;
+}
+
 void SleepDelay(uint32_t mseconds) {
   if (!TasmotaGlobal.backlog_nodelay && mseconds) {
     uint32_t wait = millis() + mseconds;
-    while (!TimeReached(wait) && !Serial.available()) {  // We need to service serial buffer ASAP as otherwise we get uart buffer overrun
+    while (!TasmotaGlobal.skip_sleep &&  // We need to service imminent interrupts ASAP
+           !TimeReached(wait) &&
+           !Serial.available()) {     // We need to service serial buffer ASAP as otherwise we get uart buffer overrun
       XdrvXsnsCall(FUNC_SLEEP_LOOP);  // Main purpose is reacting ASAP on serial data availability or interrupt handling (ADE7880)
+      if (TasmotaGlobal.skip_sleep) { break; }
       delay(1);
     }
   } else {
@@ -827,19 +858,22 @@ void loop(void) {
 
   uint32_t my_activity = millis() - my_sleep;
 
-  if (Settings->flag3.sleep_normal) {              // SetOption60 - Enable normal sleep instead of dynamic sleep
-    //  yield();                                   // yield == delay(0), delay contains yield, auto yield in loop
-    SleepDelay(TasmotaGlobal.sleep);               // https://github.com/esp8266/Arduino/issues/2021
+  if (TasmotaGlobal.skip_sleep) {
+    TasmotaGlobal.skip_sleep--;                    // Temporarily skip sleep to handle imminent interrupts outside interrupt handler
   } else {
-    if (my_activity < (uint32_t)TasmotaGlobal.sleep) {
-      SleepDelay((uint32_t)TasmotaGlobal.sleep - my_activity);  // Provide time for background tasks like wifi
+    if (Settings->flag3.sleep_normal) {            // SetOption60 - Enable normal sleep instead of dynamic sleep
+      //  yield();                                 // yield == delay(0), delay contains yield, auto yield in loop
+      SleepDelay(TasmotaGlobal.sleep);             // https://github.com/esp8266/Arduino/issues/2021
     } else {
-      if (TasmotaGlobal.global_state.network_down) {
-        SleepDelay(my_activity /2);                // If wifi down and my_activity > setoption36 then force loop delay to 1/2 of my_activity period
+      if (my_activity < (uint32_t)TasmotaGlobal.sleep) {
+        SleepDelay((uint32_t)TasmotaGlobal.sleep - my_activity);  // Provide time for background tasks like wifi
+      } else {
+        if (TasmotaGlobal.global_state.network_down) {
+          SleepDelay(my_activity /2);              // If wifi down and my_activity > setoption36 then force loop delay to 1/2 of my_activity period
+        }
       }
     }
   }
-
   if (!my_activity) { my_activity++; }             // We cannot divide by 0
   uint32_t loop_delay = TasmotaGlobal.sleep;
   if (!loop_delay) { loop_delay++; }               // We cannot divide by 0

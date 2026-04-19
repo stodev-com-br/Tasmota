@@ -62,7 +62,7 @@ class Matter_Commissioning
   # dispatch every second click to sub-objects that need it
   def every_second()
     if self.commissioning_open != nil && tasmota.time_reached(self.commissioning_open)    # timeout reached, close provisioning
-      self.commissioning_open = nil
+      self.stop_basic_commissioning()   # properly close commissioning and remove mDNS
     end
   end
 
@@ -110,18 +110,7 @@ class Matter_Commissioning
     self.commissioning_L  = L
     self.commissioning_admin_fabric = admin_fabric
 
-    if tasmota.wifi()['up'] || tasmota.eth()['up']
-      self.mdns_announce_PASE()
-    else
-      tasmota.add_rule("Wifi#Connected", def ()
-          self.mdns_announce_PASE()
-          tasmota.remove_rule("Wifi#Connected", "mdns_announce_PASE")
-        end, "mdns_announce_PASE")
-        tasmota.add_rule("Eth#Connected", def ()
-            self.mdns_announce_PASE()
-            tasmota.remove_rule("Eth#Connected", "mdns_announce_PASE")
-          end, "mdns_announce_PASE")
-    end
+    tasmota.when_network_up(def () self.mdns_announce_PASE() end)
   end
 
   #############################################################
@@ -190,7 +179,7 @@ class Matter_Commissioning
   # Deferred until next tick.
   def start_operational_discovery_deferred(fabric)
     # defer to next click
-    tasmota.set_timer(0, /-> self.start_operational_discovery(fabric))
+    tasmota.defer(/-> self.start_operational_discovery(fabric))
   end
 
   #############################################################
@@ -199,7 +188,7 @@ class Matter_Commissioning
   # Deferred until next tick.
   def start_commissioning_complete_deferred(session)
     # defer to next click
-    tasmota.set_timer(0, /-> self.start_commissioning_complete(session))
+    tasmota.defer(/-> self.start_commissioning_complete(session))
   end
 
   #############################################################
@@ -236,23 +225,16 @@ class Matter_Commissioning
   # When the announce is active, `hostname_wifi` and `hostname_eth`
   # are defined
   def start_mdns_announce_hostnames()
-    if tasmota.wifi()['up']
-      self._mdns_announce_hostname(false)
-    else
-      tasmota.add_rule("Wifi#Connected", def ()
-          self._mdns_announce_hostname(false)
-          tasmota.remove_rule("Wifi#Connected", "matter_mdns_host")
-        end, "matter_mdns_host")
-    end
+    tasmota.when_network_up(def ()
 
-    if tasmota.eth()['up']
-      self._mdns_announce_hostname(true)
-    else
-      tasmota.add_rule("Eth#Connected", def ()
-          self._mdns_announce_hostname(true)
-          tasmota.remove_rule("Eth#Connected", "matter_mdns_host")
-        end, "matter_mdns_host")
-    end
+      if tasmota.wifi('up')
+        self._mdns_announce_hostname(false)
+      end
+      if tasmota.eth('up')
+        self._mdns_announce_hostname(true)
+      end
+
+    end)
   end
 
   #############################################################
@@ -303,12 +285,23 @@ class Matter_Commissioning
     import mdns
     import crypto
 
+    # Per Matter 1.4.1 spec section 4.3.4 and 4.13.1:
+    # SII = SESSION_IDLE_INTERVAL (ms) - MRP retry interval when node is Idle (default 500ms)
+    # SAI = SESSION_ACTIVE_INTERVAL (ms) - MRP retry interval when node is Active (default 300ms)
+    # SAT = SESSION_ACTIVE_THRESHOLD (ms) - time node stays active after network activity (default 4000ms)
+    # For always-on WiFi devices, we use the spec defaults since device is always responsive
+    var sii = 500     # SESSION_IDLE_INTERVAL: 500ms (spec default)
+    var sai = 300     # SESSION_ACTIVE_INTERVAL: 300ms (spec default)
+
     var services = {
       "VP": f"{self.device.VENDOR_ID}+{self.device.PRODUCT_ID}",
       "D": self.commissioning_discriminator,
       "CM":1,                           # requires passcode
       "T":0,                            # no support for TCP
-      "SII":5000, "SAI":300
+      "SII":sii, "SAI":sai
+      # Note: ICD key is only for devices that support LITS (Long Idle Time Support) feature
+      # Per spec: "The key SHALL NOT be provided by a Node that does not support the ICD Long Idle Time operating mode"
+      # Since we're a simple SIT device without LITS, we don't advertise ICD key
     }
 
     self.commissioning_instance_wifi = crypto.random(8).tohex()    # 16 characters random hostname

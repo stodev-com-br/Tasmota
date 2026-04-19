@@ -929,7 +929,7 @@ be_local_closure(class_Matter_IM_ReportData_Pull_send_im,   /* name */
       0x5431FFFD,  //  014E  LDINT	R12	-2
       0x7C240600,  //  014F  CALL	R9	3
       0x8C241123,  //  0150  GETMET	R9	R8	K35
-      0x582C0024,  //  0151  LDCONST	R11	K36
+      0x542E000B,  //  0151  LDINT	R11	12
       0x58300024,  //  0152  LDCONST	R12	K36
       0x7C240600,  //  0153  CALL	R9	3
       0x8C241123,  //  0154  GETMET	R9	R8	K35
@@ -1095,7 +1095,7 @@ be_local_class(Matter_IM_ReportData_Pull,
         { be_const_key_weak(status_ok_received, -1), be_const_closure(class_Matter_IM_ReportData_Pull_status_ok_received_closure) },
         { be_const_key_weak(data_ev, -1), be_const_var(4) },
         { be_const_key_weak(suppress_response, 8), be_const_var(3) },
-        { be_const_key_weak(MAX_MESSAGE, -1), be_const_int(1200) },
+        { be_const_key_weak(MAX_MESSAGE, -1), be_const_int(1150) },
         { be_const_key_weak(set_suppress_response, -1), be_const_closure(class_Matter_IM_ReportData_Pull_set_suppress_response_closure) },
         { be_const_key_weak(set_subscription_id, -1), be_const_closure(class_Matter_IM_ReportData_Pull_set_subscription_id_closure) },
         { be_const_key_weak(generator_or_arr, 5), be_const_var(0) },

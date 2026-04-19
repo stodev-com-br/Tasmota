@@ -46,7 +46,7 @@ void TasDiscoverMessage(void) {
                    "\"dn\":\"%s\","                            // Device Name
                    "\"fn\":["),                                // Friendly Names (start)
                    ip_address,
-                   SettingsText(SET_DEVICENAME));
+                   EscapeJSONString(SettingsText(SET_DEVICENAME)).c_str());
 
   uint32_t maxfn = (TasmotaGlobal.devices_present > MAX_FRIENDLYNAMES) ? MAX_FRIENDLYNAMES : (!TasmotaGlobal.devices_present) ? 1 : TasmotaGlobal.devices_present;
   for (uint32_t i = 0; i < MAX_FRIENDLYNAMES; i++) {
@@ -69,6 +69,7 @@ void TasDiscoverMessage(void) {
                    "\"mac\":\"%s\","                           // Full MAC as Device id
                    "\"md\":\"%s\","                            // Module or Template Name
                    "\"ty\":%d,\"if\":%d,"                      // Flag for TuyaMCU and Ifan devices
+                   "\"cam\":%d,"                               // Flag for ESP32-cam
                    "\"ofln\":\"" MQTT_LWT_OFFLINE "\","        // Payload Offline
                    "\"onln\":\"" MQTT_LWT_ONLINE "\","         // Payload Online
                    "\"state\":[\"%s\",\"%s\",\"%s\",\"%s\"],"  // State text for "OFF","ON","TOGGLE","HOLD"
@@ -81,6 +82,11 @@ void TasDiscoverMessage(void) {
                    NetworkUniqueId().c_str(),
                    ModuleName().c_str(),
                    TuyaMod, iFanMod,
+#ifdef ESP32
+                   TasmotaGlobal.camera_initialized,
+#else
+                   false,
+#endif
                    GetStateText(0), GetStateText(1), GetStateText(2), GetStateText(3),
                    TasmotaGlobal.version,
                    TasmotaGlobal.mqtt_topic,

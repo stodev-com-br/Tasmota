@@ -1,4 +1,4 @@
-CFLAGS      = -Wall -Wextra -std=c99 -O2 -Wno-zero-length-array -Wno-empty-translation-unit -DUSE_BERRY_INT64
+CFLAGS      = -Wall -Wextra -std=c99 -O2 -Wno-zero-length-array -Wno-empty-translation-unit -ffp-contract=off -DUSE_BERRY_INT64
 DEBUG_FLAGS = -O0 -g -DBE_DEBUG
 TEST_FLAGS  = $(DEBUG_FLAGS) --coverage -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined
 LIBS        = -lm
@@ -21,8 +21,7 @@ ifeq ($(OS), Windows_NT) # Windows
     PYTHON    ?= python # only for windows and need python3
     COC       := $(PYTHON) $(COC)
 else
-    CFLAGS    += -DUSE_READLINE_LIB
-    LIBS      += -lreadline -ldl
+    LIBS      += -ldl
     OS        := $(shell uname)
     ifeq ($(OS), Linux)
         LFLAGS += -Wl,--export-dynamic

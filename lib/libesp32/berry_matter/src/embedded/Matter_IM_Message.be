@@ -197,8 +197,8 @@ matter.IM_WriteResponse = Matter_IM_WriteResponse
 # This version pull the attributes in lazy mode, only when response is computed
 #################################################################################
 class Matter_IM_ReportData_Pull : Matter_IM_Message
-  static var MAX_MESSAGE = 1200       # max bytes size for a single TLV worklaod
-                                      # the maximum MTU is 1280, which leaves 80 bytes for the rest of the message
+  static var MAX_MESSAGE = 1150       # max bytes size for a single TLV worklaod
+                                      # the maximum MTU is 1280, which leaves 130 bytes for the rest of the message
                                       # section 4.4.4 (p. 114)
   # note: `self.data` (bytes or nil) is containing any remaining responses that could not fit in previous packets
   var generator_or_arr                # a PathGenerator or an array of PathGenerator
@@ -391,7 +391,7 @@ class Matter_IM_ReportData_Pull : Matter_IM_Message
     end
     # InteractionModelRevision
     raw.add(0x24FF, -2)               # add 24FF
-    raw.add(0x01, 1)                  # add 01
+    raw.add(0x0C, 1)                    # add 0C - InteractionModelRevision 12 (Matter 1.4+)
     # close struct ReportDataMessage
     raw.add(0x18, 1)                  # add 18
     # log(f">>>: {raw.tohex()}", 3)

@@ -718,7 +718,7 @@ bool TasmotaI2S::updateClockConfig(void) {
   if (_tx_mode != I2S_MODE_DAC) {
     if (_tx_running) {
       esp_err_t err = i2s_channel_disable(_tx_handle);
-      AddLog(LOG_LEVEL_INFO, "I2S: updateClockConfig i2s_channel_disable err=0x%04X", err);
+      AddLog(LOG_LEVEL_DEBUG, "I2S: updateClockConfig i2s_channel_disable err=0x%04X", err);
     }
     i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(hertz);
   #ifdef SOC_I2S_SUPPORTS_APLL
@@ -727,10 +727,10 @@ bool TasmotaI2S::updateClockConfig(void) {
     }
   #endif
     esp_err_t result = i2s_channel_reconfig_std_clock(_tx_handle, &clk_cfg);
-    AddLog(LOG_LEVEL_INFO, "I2S: updateClockConfig i2s_channel_reconfig_std_clock err=0x%04X", result);
+    AddLog(LOG_LEVEL_DEBUG, "I2S: updateClockConfig i2s_channel_reconfig_std_clock err=0x%04X", result);
     if (_tx_running) { 
       esp_err_t err = i2s_channel_enable(_tx_handle);
-      AddLog(LOG_LEVEL_INFO, "I2S: updateClockConfig i2s_channel_enable err=0x%04X", err);
+      AddLog(LOG_LEVEL_DEBUG, "I2S: updateClockConfig i2s_channel_enable err=0x%04X", err);
     }
     AddLog(LOG_LEVEL_DEBUG, "I2S: Updating clock config");
     return result == ESP_OK;
@@ -876,6 +876,37 @@ int16_t TasmotaI2S::lowpassFilter(int16_t pcm_in) {
   _rx_lowpass_y_prev = pcm_out;
   return pcm_out;
 }
+
+#include "AudioFileSource.h"
+class AudioFileSourceLoopBuffer : public AudioFileSource
+{
+  public:
+    AudioFileSourceLoopBuffer(void *inBuff, uint32_t buffSizeBytes, uint32_t restartOffset = 0){
+      readPtr = 0;
+      buffer = reinterpret_cast<uint8_t*>(inBuff);
+      buffSize = buffSizeBytes;
+      restart = restartOffset;
+    }
+    virtual ~AudioFileSourceLoopBuffer() override {};
+    
+    virtual uint32_t read(void *data, uint32_t len) override {
+      uint32_t _availableBytes = len > (buffSize - readPtr) ? buffSize - readPtr : len;
+      memcpy(reinterpret_cast<uint8_t*>(data), buffer + readPtr, _availableBytes);
+      readPtr += len;
+      if(readPtr >= buffSize) {readPtr = restart;}
+      return _availableBytes;
+    }
+    virtual bool seek(int32_t pos, int dir) override {return false;}
+    virtual bool close() override {return true;}
+    virtual bool isOpen() override {return true;}
+    virtual uint32_t getSize() override {return buffSize;}
+    virtual uint32_t getPos() override {return readPtr;}
+  private:
+    uint32_t buffSize; 
+    uint8_t *buffer;
+    uint32_t readPtr;
+    uint32_t restart;
+};
 
 #endif // USE_I2S_AUDIO
 #endif // defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5

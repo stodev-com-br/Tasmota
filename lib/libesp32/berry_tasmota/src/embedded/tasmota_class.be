@@ -2,7 +2,6 @@
 #- Do not use it -#
 
 class Trigger end       # for compilation
-class Rule_Matche end   # for compilation
 
 tasmota = nil
 #@ solidify:Tasmota
@@ -10,9 +9,11 @@ class Tasmota
   var _fl             # list of fast_loop registered closures
   var _rules
   var _timers         # holds both timers and cron
+  var _defer          # holds functions to be called at next millisecond
   var _crons
   var _ccmd
   var _drivers
+  var _wnu            # when_connected: list of closures to call when network is connected, or nil
   var wire1
   var wire2
   var cmd_res         # store the command result, nil if disables, true if capture enabled, contains return value
@@ -91,13 +92,31 @@ class Tasmota
   end
 
   # Rules
-  def add_rule(pat, f, id)
+  def add_rule_once(pat, f, id)
+    self.add_rule(pat, f, id, true)
+  end
+  # add_rule(pat, f, id, run_once)
+  #
+  # pat: (string) pattern for the rule
+  # f: (function) the function to be called when the rule fires
+  #    there is a check that the caller doesn't use mistakenly
+  #    a method - in such case a closure needs to be used instead
+  # id: (opt, any) an optional id so the rule can be removed later
+  #     needs to be unique to avoid collision
+  #     No test for uniqueness is performed
+  # run_once: (opt, bool or nil) indicates the rule is fired only once
+  #           this parameter is not used directly but instead
+  #           set by 'add_rule_once()'
+  def add_rule(pat, f, id, run_once)
     self.check_not_method(f)
     if self._rules == nil
       self._rules = []
     end
     if type(f) == 'function'
-      self._rules.push(Trigger(self.Rule_Matcher.parse(pat), f, id))
+      if (id != nil)
+        self.remove_rule(pat, id)
+      end
+      self._rules.push(Trigger(self.Rule_Matcher.parse(pat), f, id, run_once))
     else
       raise 'value_error', 'the second argument is not a function'
     end
@@ -115,6 +134,59 @@ class Tasmota
       end
     end
   end
+
+  #-
+  # Below is a unit test for add_rule and add_rule_once
+  var G1, G2, G3
+  def f1() print("F1") G1 = 1 return true end
+  def f2() print("F2") G2 = 2 return true end
+  def f3() print("F3") G3 = 3 return true end
+
+
+  tasmota.add_rule("A#B", f1, "f1")
+  tasmota.add_rule_once("A#B", f2, "f2")
+
+  var r
+  r = tasmota.publish_rule('{"A":{"B":1}}')
+
+  assert(G1 == 1)
+  assert(G2 == 2)
+  assert(G3 == nil)
+  #assert(r == true)
+
+  G1 = nil
+  G2 = nil
+
+  r = tasmota.publish_rule('{"A":{"B":1}}')
+
+  assert(G1 == 1)
+  assert(G2 == nil)
+  assert(G3 == nil)
+  #assert(r == true)
+
+  tasmota.add_rule("A#B", f3, "f1")
+
+  G1 = nil
+
+  r = tasmota.publish_rule('{"A":{"B":1}}')
+
+  assert(G1 == nil)
+  assert(G2 == nil)
+  assert(G3 == 3)
+  #assert(r == true)
+
+  tasmota.remove_rule("A#B", "f1")
+
+  G3 = nil
+
+  r = tasmota.publish_rule('{"A":{"B":1}}')
+
+  assert(G1 == nil)
+  assert(G2 == nil)
+  assert(G3 == nil)
+  #assert(r == false)
+
+  -#
 
   # Rules trigger if match. return true if match, false if not
   #
@@ -134,27 +206,35 @@ class Tasmota
 
   # Run rules, i.e. check each individual rule
   # Returns true if at least one rule matched, false if none
-  # `exec_rule` is true, then run the rule, else just record value
+  #
+  # ev_json: (string) the payload of the rule, needs to be JSON format
+  # exec_rule: (bool) 'true' run the rule, 'false' just record value (avoind infinite loops)
   def exec_rules(ev_json, exec_rule)
-    var save_cmd_res = self.cmd_res     # save initial state (for reentrance)
-    if self._rules || save_cmd_res != nil  # if there is a rule handler, or we record rule results
+    var save_cmd_res = self.cmd_res       # save initial state (for reentrance)
+    if self._rules || save_cmd_res != nil # if there is a rule handler, or we record rule results
       import json
 
       self.cmd_res = nil                  # disable sunsequent recording of results
-      var ret = false
+      var ret = false                     # ret records if any rule was fired
 
       var ev = json.load(ev_json)         # returns nil if invalid JSON
       if ev == nil
-        self.log('BRY: ERROR, bad json: '+ev_json, 3)
-        ev = ev_json                # revert to string
+        self.log('BRY: ERROR, bad json: ' + ev_json, 3)
+        ev = ev_json                      # revert to string
       end
       # try all rule handlers
       if exec_rule && self._rules
         var i = 0
         while i < size(self._rules)
           var tr = self._rules[i]
-          ret = self.try_rule(ev,tr.trig,tr.f) || ret  #- call should be first to avoid evaluation shortcut if ret is already true -#
-          i += 1
+          var rule_fired = self.try_rule(ev, tr.trig, tr.f)
+          ret = ret || rule_fired              # 'or' with result
+          if rule_fired && (tr.o == true)
+            # this rule should be run_once(d) so remove it
+            self._rules.remove(i)
+          else
+            i += 1
+          end
         end
       end
 
@@ -195,13 +275,39 @@ class Tasmota
   def set_timer(delay,f,id)
     self.check_not_method(f)
     if self._timers == nil
-      self._timers=[]
+      self._timers = []
     end
     self._timers.push(Trigger(self.millis(delay),f,id))
   end
 
-  # run every 50ms tick
+  # special version to push a function that will be called immediately after 
+  def defer(f)
+    if self._defer == nil
+      self._defer = []
+    end
+    self._defer.push(f)
+    tasmota.global.deferred_ready = 1
+  end
+
+  # run any immediate function
   def run_deferred()
+    if self._defer
+      var sz = size(self._defer)    # make sure to run only those present at first, and not those inserted in between
+      while sz > 0
+        var f = self._defer[0]
+        self._defer.remove(0)
+        sz -= 1
+        f()
+      end
+      if size(self._defer) == 0
+        tasmota.global.deferred_ready = 0
+      end
+    end
+  end
+
+  # run every 50ms tick
+  def run_timers()
+    self.run_deferred()      # run immediate functions first
     if self._timers
       var i=0
       while i < self._timers.size()
@@ -317,10 +423,10 @@ class Tasmota
   # Execute custom command
   def exec_cmd(cmd, idx, payload)
     if self._ccmd
-      import json
-      var payload_json = json.load(payload)
       var cmd_found = self.find_key_i(self._ccmd, cmd)  # name of the command as registered (case insensitive search)
       if cmd_found != nil
+        import json
+        var payload_json = json.load(payload)
         self.resolvecmnd(cmd_found)   # set the command name in XdrvMailbox.command as it was registered first
         self._ccmd[cmd_found](cmd_found, idx, payload, payload_json)
         return true
@@ -371,7 +477,7 @@ class Tasmota
     # compile in-memory
     var compiled_code
     try
-      compiled_code = compile(f_name, 'file')
+      compiled_code = compile(f_name, 'file', true)
       if (compiled_code == nil)
         print(f"BRY: empty compiled file")
         return false
@@ -397,6 +503,7 @@ class Tasmota
   #    load("autoexec.be")        -- loads file from .be or .bec if .be is not here, remove .bec if .be exists
   #    load("autoexec")           -- same as above
   #    load("autoexec.bec")       -- load only .bec file and ignore .be
+  #    load("app.tapp")           -- loads app, internally adds "#autoexec.be"
   #    load("app.tapp#module.be") -- loads from tapp arhive
   #
   # Returns 'true' if succesful of 'false' if file is not found or corrupt
@@ -491,6 +598,12 @@ class Tasmota
     if !string.startswith(f_name, '/')   f_name = '/' + f_name   end
     # Ex: f_name = '/app.zip#autoexec'
 
+    # if ends with ".tapp", add "#autoexec"
+    # prefix may be ".tapp" or ".tapp_"
+    if string.endswith(f_name, '.tapp') || string.endswith(f_name, '.tapp_')
+      f_name += "#autoexec"
+    end
+
     var f_find_hash = string.find(f_name, '#')
     var f_archive = (f_find_hash > 0)                     # is the file in an archive
     var f_prefix = f_archive ? f_name[0..f_find_hash - 1] : f_name
@@ -579,6 +692,7 @@ class Tasmota
     # remove path prefix
     if f_archive
       pop_path(f_prefix + "#")
+      self.wd = ""
     end
 
     return run_ok
@@ -618,13 +732,51 @@ class Tasmota
     end
   end
 
+  # returns `true` if the network stack is connected
+  def is_network_up()
+    return tasmota.wifi()['up'] || tasmota.eth()['up']
+  end
+
+  # add a closure to the list to be called when network is connected
+  # or call immediately if network is already up
+  def when_network_up(cl)
+    self.check_not_method(cl)
+    if self.is_network_up()
+      cl()          # call closure
+    else
+      if (self._wnu == nil)
+        self._wnu = [ cl ]    # create list
+      else
+        self._wnu.push(cl)    # append to list
+      end
+    end
+  end
+
+  # run all pending closures when network is up
+  def run_network_up()
+    if (self._wnu == nil)   return    end
+    if self.is_network_up()
+      # run all closures in a safe loop
+      while (size(self._wnu) > 0)
+        var cl = self._wnu[0]
+        self._wnu.remove(0)     # failsafe, remove first to avoid an infinite loop if call fails
+        try
+          cl()
+        except .. as e,m
+          print(format("BRY: Exception> run_network_up '%s' - %s", e, m))
+        end
+      end
+      self._wnu = nil         # all done, clear list
+    end
+  end
+
   def event(event_type, cmd, idx, payload, raw)
-    import introspect
-    if event_type=='every_50ms'
-      self.run_deferred()
+    if (event_type == 'every_50ms')
+      if (self._wnu) self.run_network_up() end   # capture when network becomes connected
+      self.run_timers()
     end  #- first run deferred events -#
 
-    if event_type=='every_250ms'
+    if (event_type == 'every_250ms')
       self.run_cron()
     end
 
@@ -635,11 +787,12 @@ class Tasmota
       keep_going = true
     end
 
-    if event_type=='cmd' return self.exec_cmd(cmd, idx, payload)
-    elif event_type=='tele' return self.exec_tele(payload)
-    elif event_type=='rule' return self.exec_rules(payload, bool(idx))
-    elif event_type=='gc' return self.gc()
+    if   (event_type == 'cmd')  return self.exec_cmd(cmd, idx, payload)
+    elif (event_type == 'tele') return self.exec_tele(payload)
+    elif (event_type == 'rule') return self.exec_rules(payload, bool(idx))
+    elif (event_type == 'gc')   return self.gc()
     elif self._drivers
+      import introspect
       var i = 0
       while i < size(self._drivers)
         var d = self._drivers[i]
@@ -669,6 +822,16 @@ class Tasmota
     return done
   end
 
+  ######################################################################
+  # add_driver
+  #
+  # Add an instance to the dispatchin of Berry events
+  #
+  # Args:
+  #    - `d`: instance (or driver)
+  #           The events will be dispatched to this instance whenever
+  #           it has a method with the same name of the instance
+  ######################################################################
   def add_driver(d)
     if type(d) != 'instance'
       raise "value_error", "instance required"
@@ -682,12 +845,129 @@ class Tasmota
     end
   end
 
+  ######################################################################
+  # add_extension
+  #
+  # Add an instance to the dispatchin of Berry events
+  #
+  # Args:
+  #    - `d`: instance (or driver)
+  #           The events will be dispatched to this instance whenever
+  #           it has a method with the same name of the instance
+  #    - `ext_path`: the path of the extension, usually a '.tapp' file
+  ######################################################################
+  def add_extension(d, ext_path)    # add ext
+    if (ext_path == nil)
+      ext_path = tasmota.wd
+    end
+
+    if (type(d) != 'instance') || (type(ext_path) != 'string')
+      raise "value_error", "instance and name required"
+    end
+    if (ext_path != nil)
+      import string
+      # initialize self._ext if it does not exist
+      if self._ext == nil
+        self._ext = sortedmap()
+      end
+      if string.endswith(ext_path, '#')
+        ext_path = ext_path[0..-2]    # remove trailing '#''
+      end
+      if self._ext.contains(ext_path)
+        log(f"BRY: Extension '{ext_path}' already registered", 3)
+      else
+        self._ext[ext_path] = d
+      end
+    end
+  end
+
+  ######################################################################
+  # read_extension_manifest
+  #
+  # Read and parse the 'manifest.json' file in the 'wd' (working dir)
+  #
+  # Args:
+  #    - `wd`: (string) working dir indicating which .tapp file to read
+  #            ex: 'Partition_Wizard.tapp#'
+  # Returns:  map of values from JSON, or `nil` if an error occured
+  #
+  # Returned map is eitner `nil` if failed or a map with guaranteed content:
+  #    - name (string)
+  #    - description (string), default ""
+  #    - version (int), default 0
+  #    - min_tasmota(int), default 0
+  #
+  ######################################################################
+  def read_extension_manifest(wd_or_instance)
+    var f
+    var wd = wd_or_instance
+    try
+      import json
+      import string
+
+      if (wd == nil)    wd = tasmota.wd   end   # if 'wd' is nil, use the current `tasmota.wd`
+
+      var delimiter = ((size(wd) > 0) && (wd[-1] != '/') && (wd[-1] != '#')) ? '#' : ''    # add '#' delimiter if filename
+      f = open(wd + delimiter + 'manifest.json')
+      var s = f.read()
+      f.close()
+      var j = json.load(s)
+      # check if valid, 'name' is mandatory
+      var name = j.find('name')
+      if name
+        # convert version numbers if present
+        j['name']         = str(j['name'])
+        j['description']  = str(j.find('description', ''))
+        j['version']      = int(j.find('version', 0))
+        j['min_tasmota']  = int(j.find('min_tasmota', 0))
+        j['autorun']      = string.endswith(wd, ".tapp")
+        return j
+      else
+        return nil
+      end
+    except .. as e, m
+      log(f"BRY: error {e} {m} when reading 'manifest.json' in '{wd}'")
+      if (f != nil)
+        f.close()
+      end
+      return nil
+    end
+  end
+
   def remove_driver(d)
     if self._drivers
       var idx = self._drivers.find(d)
       if idx != nil
         self._drivers.pop(idx)
       end
+    end
+    # remove ext
+    if self._ext
+      self._ext.remove_by_value(d)
+    end
+  end
+
+  def unload_extension(name_or_instance)
+    if (self._ext == nil)   return false end
+    var d = name_or_instance    # d = driver
+
+    if type(name_or_instance) == 'string'
+      d = self._ext.find(name_or_instance)
+    end
+    if type(d) == 'instance'
+      import introspect
+
+      if introspect.contains(d, "unload")
+        d.unload()
+      end
+      self.remove_driver(d)
+      # force gc of instance
+      name_or_instance = nil
+      d = nil
+      tasmota.gc()
+      return true
+    else
+      return false
     end
   end
 
@@ -716,6 +996,59 @@ class Tasmota
     end
     return ret
   end
+
+  # tasmota.int(v, min, max)
+  # ensures that v is int, and always between min and max
+  # if min>max returns min
+  # if v==nil returns min
+  static def int(v, min, max)
+    v = int(v)        # v is int (not nil)
+    if (min == nil && max == nil) return v end
+    min = int(min)
+    max = int(max)
+    if (min != nil && max != nil)
+      if (v == nil) return min end
+    end
+    if (v != nil)
+      if (min != nil && v < min)    return min  end
+      if (max != nil && v > max)    return max  end
+    end
+    return v
+  end
+
+  #-
+  # Unit tests
+
+  # behave like normal int
+  assert(tasmota.int(4) == 4)
+  assert(tasmota.int(nil) == nil)
+  assert(tasmota.int(-3) == -3)
+  assert(tasmota.int(4.5) == 4)
+  assert(tasmota.int(true) == 1)
+  assert(tasmota.int(false) == 0)
+
+  # normal behavior
+  assert(tasmota.int(4, 0, 10) == 4)
+  assert(tasmota.int(0, 0, 10) == 0)
+  assert(tasmota.int(10, 0, 10) == 10)
+  assert(tasmota.int(10, 0, 0) == 0)
+  assert(tasmota.int(10, 10, 10) == 10)
+  assert(tasmota.int(-4, 0, 10) == 0)
+  assert(tasmota.int(nil, 0, 10) == 0)
+
+  # missing min or max
+  assert(tasmota.int(4, nil, 10) == 4)
+  assert(tasmota.int(14, nil, 10) == 10)
+  assert(tasmota.int(nil, nil, 10) == nil)
+  assert(tasmota.int(4, 0, nil) == 4)
+  assert(tasmota.int(-4, 0, nil) == 0)
+  assert(tasmota.int(nil, 0, nil) == nil)
+
+  # max < min
+  assert(tasmota.int(4, 10, 0) == 10)
+  assert(tasmota.int(nil, 10, 0) == 10)
+
+  -#
 
   # set_light and get_light deprecetaion
   def get_light(l)

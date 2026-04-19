@@ -279,7 +279,7 @@ These will save or append a picture to a file.  The picture must have been first
 #include "sensor.h"
 #include "fb_gfx.h"
 #include "camera_pins.h"
-#include "esp_jpg_decode.h"
+#include "jpeg_decoder.h"
 //#include "img_converters.h"
 
 #ifdef USE_UFILESYS
@@ -761,12 +761,12 @@ bool WcPinUsed(void) {
   }
 
 #ifdef WEBCAM_DEV_DEBUG  
-  AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: i2c_enabled_2: %d"), TasmotaGlobal.i2c_enabled_2);
+  AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: i2c_enabled_2: %d"), TasmotaGlobal.i2c_enabled[1]);
 #endif
 
   if (!PinUsed(GPIO_WEBCAM_XCLK) || !PinUsed(GPIO_WEBCAM_PCLK) ||
       !PinUsed(GPIO_WEBCAM_VSYNC) || !PinUsed(GPIO_WEBCAM_HREF) ||
-      ((!PinUsed(GPIO_WEBCAM_SIOD) || !PinUsed(GPIO_WEBCAM_SIOC)) && !TasmotaGlobal.i2c_enabled_2)    // preferred option is to reuse and share I2Cbus 2
+      ((!PinUsed(GPIO_WEBCAM_SIOD) || !PinUsed(GPIO_WEBCAM_SIOC)) && !TasmotaGlobal.i2c_enabled[1])    // preferred option is to reuse and share I2Cbus 2
       ) {
         pin_used = false;
   }
@@ -974,7 +974,7 @@ uint32_t WcSetup(int32_t fsiz) {
     config.pin_href = Pin(GPIO_WEBCAM_HREF);      // HREF_GPIO_NUM;
     config.pin_sccb_sda = Pin(GPIO_WEBCAM_SIOD);  // SIOD_GPIO_NUM; - unset to use shared I2C bus 2
     config.pin_sccb_scl = Pin(GPIO_WEBCAM_SIOC);  // SIOC_GPIO_NUM;
-    if(TasmotaGlobal.i2c_enabled_2){              // configure SIOD and SIOC as SDA,2 and SCL,2
+    if(TasmotaGlobal.i2c_enabled[1]){              // configure SIOD and SIOC as SDA,2 and SCL,2
       config.sccb_i2c_port = 1;                   // reuse initialized bus 2, can be shared now
       if(config.pin_sccb_sda < 0){                // GPIO_WEBCAM_SIOD must not be set to really make it happen
 #ifdef WEBCAM_DEV_DEBUG  
@@ -1151,6 +1151,7 @@ uint32_t WcSetup(int32_t fsiz) {
   camera_sensor_info_t *info = esp_camera_sensor_get_info(&wc_s->id);
 
   AddLog(LOG_LEVEL_INFO, PSTR("CAM: %s Initialized"), info->name);
+  TasmotaGlobal.camera_initialized = true;
   Wc.up = 1;
   if (Wc.psram) { Wc.up = 2; }
 
@@ -1738,7 +1739,7 @@ static void WCOperationTask(void *pvParameters){
           // every 100 frames or 5s
           if (!(loopcount % 100) || (statdur > 5000)){
             float framespersec = ((float)framecount)/(((float)(thismillis - laststatmillis))/1000.0);
-            AddLog(LOG_LEVEL_DEBUG,PSTR("CAM: avFPS %f %s FS:%d(%d) f:%u s:%u"), 
+            AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("CAM: avFPS %f %s FS:%d(%d) f:%u s:%u"), 
               framespersec, 
               jpeg_converted?"raw":"jpg", 
               wc_fb->len, 
@@ -2950,6 +2951,18 @@ void WcUpdateStats(void) {
   Wc.loopcounter = 0;
 }
 
+void WcSensorStats(void) {
+  if (!Wc.up) { return; }
+
+  ResponseAppend_P(PSTR(",\"CAMERA\":{"
+                        "\"" D_WEBCAM_STATS_FPS "\":%d,"
+                        "\"" D_WEBCAM_STATS_CAMFAIL "\":%d,"
+                        "\"" D_WEBCAM_STATS_JPEGFAIL "\":%d,"
+                        "\"" D_WEBCAM_STATS_CLIENTFAIL "\":%d}"),
+                   WcStats.camfps, WcStats.camfail,
+                   WcStats.jpegfail, WcStats.clientfail);
+}
+
 #ifndef D_WEBCAM_STATE
 #define D_WEBCAM_STATE "State"
 #define D_WEBCAM_POWEREDOFF "PowerOff"
@@ -2993,6 +3006,9 @@ bool Xdrv99(uint32_t function) {
       break;
     case FUNC_EVERY_SECOND:
       WcUpdateStats();
+      break;
+    case FUNC_JSON_APPEND:
+      WcSensorStats();
       break;
     case FUNC_WEB_SENSOR:
       WcStatsShow();

@@ -928,22 +928,48 @@ constexpr uint32_t feature[] = {
 #if defined(USE_I2C) && defined(USE_HX711_M5SCALES)
   0x00000100 |  // xsns_34_hx711.ino
 #endif
-#if defined(USE_I2C) && defined(USE_RTC_CHIPS) && defined(USE_RX8010)
+#if defined(USE_I2C) && defined(USE_RTC_CHIPS) && (defined(USE_RX8010) || defined(USE_RX8030))
   0x00000200 |  // xdrv_56_rtc_chips.ino
 #endif
-//  0x00000400 |  // 
-//  0x00000800 |  // 
-//  0x00001000 |  // 
-//  0x00002000 |  // 
-//  0x00004000 |  // 
-//  0x00008000 |  // 
-//  0x00010000 |  // 
-//  0x00020000 |  // 
-//  0x00040000 |  // 
-//  0x00080000 |  // 
-//  0x00100000 |  // 
-//  0x00200000 |  // 
-//  0x00400000 |  // 
+#if defined(USE_I2C) && defined(USE_RTC_CHIPS) && defined(USE_PCF85063)
+  0x00000400 |  // xdrv_56_rtc_chips.ino
+#endif
+#ifdef USE_ESP32_TWAI
+  0x00000800 |  // xdrv_91_esp32_twai.ino
+#endif
+#ifdef USE_C8_CO2_5K
+  0x00001000 |  // xsns_117_c8_co2_5k.ino
+#endif
+#ifdef USE_WIZMOTE
+  0x00002000 |  // xdrv_77_wizmote.ino
+#endif
+#if defined(USE_ENERGY_SENSOR) && defined(USE_V9240)
+  0x00004000 |  // xnrg_25_v9240.ino
+#endif
+#ifdef USE_TELNET
+  0x00008000 |  // xdrv_78_telnet.ino
+#endif
+#ifdef USE_XYZMODEM
+  0x00010000 |  // xdrv_120_xyzmodem.ino
+#endif  
+#ifdef USE_WIREGUARD
+  0x00020000 |  // xdrv_80_wireguard_client
+#endif  
+#if defined(USE_I2C) && defined(USE_AP33772S)
+  0x00040000 |  // xdrv_119_i2c_ap33772s
+#endif  
+#ifdef USE_VID6608
+  0x00080000 |  // xdrv_92_vid6608.ino
+#endif
+#ifdef USE_AGS02MA
+  0x00100000 |  // xsns_118_ags02ma.ino
+#endif
+#if defined(USE_I2C) && defined(USE_SEN6X)
+  0x00200000 |  // xsns_119_sen6x.ino
+#endif
+#if defined(USE_I2C) && defined(USE_FM24CXX)
+  0x00400000 |  // xdrv_93_fm24cxx.ino
+#endif
 //  0x00800000 |  // 
 //  0x01000000 |  // 
 //  0x02000000 |  // 

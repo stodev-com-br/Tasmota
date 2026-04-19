@@ -324,8 +324,8 @@ static void end_func(bparser *parser)
     proto->codesize = finfo->pc;
     proto->ktab = be_vector_release(vm, &finfo->kvec);
     proto->nconst = be_vector_count(&finfo->kvec);
-    proto->nproto = be_vector_count(&finfo->pvec);
     proto->ptab = be_vector_release(vm, &finfo->pvec);
+    proto->nproto = be_vector_count(&finfo->pvec);
 #if BE_USE_MEM_ALIGNED
     proto->code = be_move_to_aligned(vm, proto->code, proto->codesize * sizeof(binstruction));     /* move `code` to 4-bytes aligned memory region */
     proto->ktab = be_move_to_aligned(vm, proto->ktab, proto->nconst * sizeof(bvalue));     /* move `ktab` to 4-bytes aligned memory region */
@@ -488,7 +488,10 @@ static void new_var(bparser *parser, bstring *name, bexpdesc *var)
         var->v.idx = new_localvar(parser, name); /* if local, contains the index in current local var list */
     } else {
         init_exp(var, ETGLOBAL, 0);
-        var->v.idx = be_global_new(parser->vm, name);
+        var->v.idx = be_global_find(parser->vm, name);
+        if (var->v.idx < 0) {
+            var->v.idx = be_global_new(parser->vm, name);
+        }
         if (var->v.idx > (int)IBx_MASK) {
             push_error(parser,
                 "too many global variables (in '%s')", str(name));
@@ -499,7 +502,7 @@ static void new_var(bparser *parser, bstring *name, bexpdesc *var)
             init_exp(&key, ETSTRING, 0);
             key.v.s = name;
             init_exp(var, ETNGLOBAL, 0);
-            var->v.idx = be_code_nglobal(parser->finfo, &key);
+            var->v.idx = be_code_resolve(parser->finfo, &key);
         }
     }
 }
@@ -561,7 +564,7 @@ static void singlevar(bparser *parser, bexpdesc *var)
         init_exp(&key, ETSTRING, 0);
         key.v.s = varname;
         init_exp(var, ETNGLOBAL, 0);
-        var->v.idx = be_code_nglobal(parser->finfo, &key);
+        var->v.idx = be_code_resolve(parser->finfo, &key);
         break;
     default:
         break;
@@ -592,7 +595,12 @@ static void func_varlist(bparser *parser)
     /* '(' [ ID {',' ID}] ')' or */
     /* '(' '*' ID ')' or */
     /* '(' [ ID {',' ID}] ',' '*' ID ')' */
-    match_token(parser, OptLBK); /* skip '(' */
+    btokentype type_lbk = next_type(parser);
+    if ((type_lbk == OptSpaceLBK) || (type_lbk == OptCallLBK)) {
+        match_token(parser, type_lbk); /* skip '(' */
+    } else {
+        match_token(parser, OptCallLBK); /* raise error */
+    }
     if (next_type(parser) == OptMul) {
         func_vararg(parser);
     } else if (match_id(parser, str) != NULL) {
@@ -834,8 +842,8 @@ static void member_expr(bparser *parser, bexpdesc *e)
         init_exp(&key, ETSTRING, 0);
         key.v.s = str;
         be_code_member(parser->finfo, e, &key);
-    } else if (next_type(parser) == OptLBK) {
-        scan_next_token(parser); /* skip '(' */
+    } else if (next_type(parser) == OptCallLBK) {
+        scan_next_token(parser); /* skip '(' - must be no space before */
         bexpdesc key;
         expr(parser, &key);
         check_var(parser, &key);
@@ -894,7 +902,8 @@ static void simple_expr(bparser *parser, bexpdesc *e)
 static void primary_expr(bparser *parser, bexpdesc *e)
 {
     switch (next_type(parser)) {
-    case OptLBK: /* '(' expr ')' */
+    case OptSpaceLBK: /* '(' expr ')' - grouping parentheses only */
+    case OptCallLBK:  /* '(' expr ')' - following a symbol */
         scan_next_token(parser); /* skip '(' */
         expr(parser, e);
         check_var(parser, e);
@@ -923,7 +932,7 @@ static void suffix_expr(bparser *parser, bexpdesc *e)
     primary_expr(parser, e);
     for (;;) {
         switch (next_type(parser)) {
-        case OptLBK: /* '(' function call */
+        case OptCallLBK: /* '(' function call - no space before */
             call_expr(parser, e);
             break;
         case OptDot: /* '.' member */
@@ -1023,15 +1032,18 @@ static void assign_expr(bparser *parser)
             parser_error(parser,
                 "try to assign constant expressions.");
         }
-    } else if (e.type >= ETMEMBER) {
-        bfuncinfo *finfo = parser->finfo;
-        /* these expressions occupy a register and need to be freed */
-        finfo->freereg = (bbyte)be_list_count(finfo->local);
-    } else if (e.type == ETVOID) { /* not assign expression */
-        /* undeclared symbol */
-        parser->lexer.linenumber = line;
-        check_var(parser, &e);
-    } 
+    } else {
+        be_code_resolve(parser->finfo, &e);
+        if (e.type >= ETMEMBER) {
+            bfuncinfo *finfo = parser->finfo;
+            /* these expressions occupy a register and need to be freed */
+            finfo->freereg = (bbyte)be_list_count(finfo->local);
+        } else if (e.type == ETVOID) { /* not assign expression */
+            /* undeclared symbol */
+            parser->lexer.linenumber = line;
+            check_var(parser, &e);
+        }
+    }
 }
 
 /* conditional expression */
@@ -1349,7 +1361,7 @@ static void continue_stmt(bparser *parser)
 static bbool isoverloadable(btokentype type)
 {
     return (type >= OptAdd && type <= OptConnect) /* overloaded binary operator */
-        || type == OptFlip || type == OptLBK;     /* '~' and '()' operator */
+        || type == OptFlip || type == OptSpaceLBK;     /* '~' and '()' operator */
 }
 
 static bstring* func_name(bparser* parser, bexpdesc* e, int ismethod)
@@ -1370,7 +1382,7 @@ static bstring* func_name(bparser* parser, bexpdesc* e, int ismethod)
             return parser_newstr(parser, "-*");
         }
         /* '()' call operator */
-        if (type == OptLBK && next_type(parser) == OptRBK) {
+        if ((type == OptSpaceLBK) && next_type(parser) == OptRBK) {
             scan_next_token(parser); /* skip ')' */
             return parser_newstr(parser, "()");
         }

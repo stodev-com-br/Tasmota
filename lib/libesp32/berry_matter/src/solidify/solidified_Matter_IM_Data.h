@@ -171,7 +171,7 @@ extern const bclass be_class_Matter_IM_Message_base;
 ********************************************************************/
 be_local_closure(class_Matter_IM_Message_base_init,   /* name */
   be_nested_proto(
-    1,                          /* nstack */
+    2,                          /* nstack */
     1,                          /* argc */
     2,                          /* varg */
     0,                          /* has upvals */
@@ -179,15 +179,15 @@ be_local_closure(class_Matter_IM_Message_base_init,   /* name */
     0,                          /* has sup protos */
     NULL,                       /* no sub protos */
     1,                          /* has constants */
-    ( &(const bvalue[ 2]) {     /* constants */
+    ( &(const bvalue[ 1]) {     /* constants */
     /* K0   */  be_nested_str_weak(InteractionModelRevision),
-    /* K1   */  be_const_int(1),
     }),
     be_str_weak(init),
     &be_const_str_solidified,
-    ( &(const binstruction[ 2]) {  /* code */
-      0x90020101,  //  0000  SETMBR	R0	K0	K1
-      0x80000000,  //  0001  RET	0
+    ( &(const binstruction[ 3]) {  /* code */
+      0x5406000B,  //  0000  LDINT	R1	12
+      0x90020001,  //  0001  SETMBR	R0	K0	R1
+      0x80000000,  //  0002  RET	0
     })
   )
 );
@@ -3286,8 +3286,8 @@ be_local_class(Matter_InvokeRequestMessage,
     })),
     be_str_weak(Matter_InvokeRequestMessage)
 );
-// compact class 'Matter_InvokeRequestMessage_solo' ktab size: 17, total: 20 (saved 24 bytes)
-static const bvalue be_ktab_class_Matter_InvokeRequestMessage_solo[17] = {
+// compact class 'Matter_InvokeRequestMessage_solo' ktab size: 16, total: 19 (saved 24 bytes)
+static const bvalue be_ktab_class_Matter_InvokeRequestMessage_solo[16] = {
   /* K0   */  be_nested_str_weak(reset),
   /* K1   */  be_nested_str_weak(SuppressResponse),
   /* K2   */  be_nested_str_weak(TimedRequest),
@@ -3304,7 +3304,6 @@ static const bvalue be_ktab_class_Matter_InvokeRequestMessage_solo[17] = {
   /* K13  */  be_nested_str_weak(TLV),
   /* K14  */  be_nested_str_weak(parse),
   /* K15  */  be_nested_str_weak(next_idx),
-  /* K16  */  be_const_int(620691736),
 };
 
 
@@ -3359,7 +3358,7 @@ be_local_closure(class_Matter_InvokeRequestMessage_solo_from_raw,   /* name */
     &be_ktab_class_Matter_InvokeRequestMessage_solo,     /* shared constants */
     be_str_weak(from_raw),
     &be_const_str_solidified,
-    ( &(const binstruction[170]) {  /* code */
+    ( &(const binstruction[179]) {  /* code */
       0x8C0C0100,  //  0000  GETMET	R3	R0	K0
       0x7C0C0200,  //  0001  CALL	R3	1
       0x600C000C,  //  0002  GETGBL	R3	G12
@@ -3511,25 +3510,34 @@ be_local_closure(class_Matter_InvokeRequestMessage_solo_from_raw,   /* name */
       0x90020605,  //  0094  SETMBR	R0	K3	R5
       0x88140103,  //  0095  GETMBR	R5	R0	K3
       0x88080B0F,  //  0096  GETMBR	R2	R5	K15
-      0x8C180304,  //  0097  GETMET	R6	R1	K4
-      0x5C200400,  //  0098  MOVE	R8	R2
-      0x5425FFFD,  //  0099  LDINT	R9	-2
-      0x7C180600,  //  009A  CALL	R6	3
-      0x541E1817,  //  009B  LDINT	R7	6168
-      0x20180C07,  //  009C  NE	R6	R6	R7
-      0x781A0001,  //  009D  JMPF	R6	#00A0
-      0x4C180000,  //  009E  LDNIL	R6
-      0x80040C00,  //  009F  RET	1	R6
+      0x8C140304,  //  0097  GETMET	R5	R1	K4
+      0x5C1C0400,  //  0098  MOVE	R7	R2
+      0x5421FFFD,  //  0099  LDINT	R8	-2
+      0x7C140600,  //  009A  CALL	R5	3
+      0x541A1817,  //  009B  LDINT	R6	6168
+      0x20140A06,  //  009C  NE	R5	R5	R6
+      0x78160001,  //  009D  JMPF	R5	#00A0
+      0x4C140000,  //  009E  LDNIL	R5
+      0x80040A00,  //  009F  RET	1	R5
       0x00080506,  //  00A0  ADD	R2	R2	K6
       0x8C140304,  //  00A1  GETMET	R5	R1	K4
       0x5C1C0400,  //  00A2  MOVE	R7	R2
-      0x5421FFFB,  //  00A3  LDINT	R8	-4
+      0x5421FFFD,  //  00A3  LDINT	R8	-2
       0x7C140600,  //  00A4  CALL	R5	3
-      0x20140B10,  //  00A5  NE	R5	R5	K16
-      0x78160001,  //  00A6  JMPF	R5	#00A9
-      0x4C140000,  //  00A7  LDNIL	R5
-      0x80040A00,  //  00A8  RET	1	R5
-      0x80040000,  //  00A9  RET	1	R0
+      0x541A24FE,  //  00A5  LDINT	R6	9471
+      0x1C140A06,  //  00A6  EQ	R5	R5	R6
+      0x78160000,  //  00A7  JMPF	R5	#00A9
+      0x00080507,  //  00A8  ADD	R2	R2	K7
+      0x8C140304,  //  00A9  GETMET	R5	R1	K4
+      0x5C1C0400,  //  00AA  MOVE	R7	R2
+      0x58200005,  //  00AB  LDCONST	R8	K5
+      0x7C140600,  //  00AC  CALL	R5	3
+      0x541A0017,  //  00AD  LDINT	R6	24
+      0x20140A06,  //  00AE  NE	R5	R5	R6
+      0x78160001,  //  00AF  JMPF	R5	#00B2
+      0x4C140000,  //  00B0  LDNIL	R5
+      0x80040A00,  //  00B1  RET	1	R5
+      0x80040000,  //  00B2  RET	1	R0
     })
   )
 );

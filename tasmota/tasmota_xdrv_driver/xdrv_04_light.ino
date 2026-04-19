@@ -32,8 +32,8 @@
  *  6          PWM6
  *  7          PWM7
  *  8          reserved
- *  9          SERIAL1           no
- * 10          SERIAL2           yes
+ *  9          Serial1    W      no
+ * 10          Serial2    CW     yes
  * 11          +WS2812    RGB    no         (One WS2812 RGB or RGBW ledstrip)
  * 12          AiLight    RGBW   no
  * 13          Sonoff B1  RGBCW  yes
@@ -236,6 +236,7 @@ struct LIGHT {
   uint8_t random = 0;
   uint8_t subtype = 0;                    // LST_ subtype
   uint8_t device = 0;
+  uint8_t devices = 0;
   uint8_t old_power = 1;
   uint8_t wakeup_active = 0;             // 0=inctive, 1=on-going, 2=about to start, 3=will be triggered next cycle
   uint8_t fixed_color_index = 1;
@@ -291,6 +292,10 @@ power_t LightPower(void)
 uint8_t LightDevice(void)
 {
   return Light.device;                    // Make external
+}
+
+uint32_t LightDevices(void) {
+  return Light.devices;                   // Make external
 }
 
 static uint32_t min3(uint32_t a, uint32_t b, uint32_t c) {
@@ -889,10 +894,10 @@ public:
     calcLevels();
   }
 
-  void changeRGB(uint8_t r, uint8_t g, uint8_t b, bool keep_bri = false) {
+  void changeRGB(uint8_t r, uint8_t g, uint8_t b, bool keep_bri = false, bool save_settings = true) {
     _state->setRGB(r, g, b, keep_bri);
     if (_ct_rgb_linked) { _state->setColorMode(LCM_RGB); }   // try to force RGB
-    saveSettings();
+    if (save_settings) { saveSettings(); }
     calcLevels();
   }
 
@@ -1249,6 +1254,8 @@ void LightInit(void)
     Light.fade_initialized = true;      // consider fade intialized starting from black
   }
 
+  Light.devices = TasmotaGlobal.devices_present - Light.device +1;  // Last time that devices_present is not increments by display
+
   LightUpdateColorMapping();
 }
 
@@ -1418,7 +1425,7 @@ void LightSetSignal(uint16_t lo, uint16_t hi, uint16_t value)
   if (Settings->flag.light_signal) {  // SetOption18 - Pair light signal with CO2 sensor
     uint16_t signal = changeUIntScale(value, lo, hi, 0, 255);  // 0..255
 //    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_DEBUG "Light signal %d"), signal);
-    light_controller.changeRGB(signal, 255 - signal, 0, true);  // keep bri
+    light_controller.changeRGB(signal, 255 - signal, 0, true, false);  // keep bri
     LightSetScheme(LS_POWER);
     if (0 == light_state.getBri()) {
       light_controller.changeBri(50);
@@ -1796,6 +1803,10 @@ void LightAnimate(void)
       sleep_previous = TasmotaGlobal.sleep;     // save previous value of sleep
       TasmotaGlobal.sleep = PWM_MAX_SLEEP;      // set a maximum value (in milliseconds) to sleep to ensure that animations are smooth
     }
+    if (Settings->save_data) {
+      // Postpone save_data during animation
+      TasmotaGlobal.save_data_counter = 2;
+    }
   } else {
     if (sleep_previous > 0) {
       TasmotaGlobal.sleep = sleep_previous;
@@ -2043,7 +2054,15 @@ uint16_t fadeGamma(uint32_t channel, uint16_t v) {
 }
 uint16_t fadeGammaReverse(uint32_t channel, uint16_t vg) {
   if (isChannelGammaCorrected(channel)) {
-    return leddGammaReverseFast(vg);
+    return ledGammaReverseFast(vg);
+  } else {
+    return vg;
+  }
+}
+
+uint16_t fadeEndGammaReverse(uint32_t channel, uint16_t vg) {
+  if (isChannelGammaCorrected(channel)) {
+    return ledGammaReverse(vg);
   } else {
     return vg;
   }
@@ -2053,7 +2072,7 @@ uint8_t LightGetCurFadeBri(void) {
   uint8_t max_bri = 0;
   uint8_t bri_i = 0;
   for (uint8_t i = 0; i < LST_MAX; i++) {
-    bri_i = changeUIntScale(fadeGammaReverse(i, Light.fade_cur_10[i]), 4, 1023, 1, 100);
+    bri_i = changeUIntScale(fadeEndGammaReverse(i, Light.fade_cur_10[i]), 4, 1023, 1, 100);
     if (bri_i > max_bri) max_bri = bri_i ;
   }
   return max_bri;
@@ -2114,7 +2133,7 @@ bool LightApplyFade(void) {   // did the value chanegd and needs to be applied
     //Serial.printf("Fade: %d / %d - ", fade_current, Light.fade_duration);
     for (uint32_t i = 0; i < Light.subtype; i++) {
       Light.fade_cur_10[i] = fadeGamma(i,
-                                changeUIntScale(fadeGammaReverse(i, fade_current),
+                                changeUIntScale(fade_current,
                                              0, Light.fade_duration,
                                              fadeGammaReverse(i, Light.fade_start_10[i]),
                                              fadeGammaReverse(i, Light.fade_end_10[i])));

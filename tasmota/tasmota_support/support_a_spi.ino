@@ -11,6 +11,10 @@
  * Basic SPI routines supporting two busses
 \*********************************************************************************************/
 
+#ifdef ESP32      
+SPIClass SPI_HSPI(HSPI);         // Uses HSPI
+#endif  // ESP32
+
 SPIClass *SpiBegin(uint32 bus = 1);
 SPIClass *SpiBegin(uint32 bus) {
   SPIClass *spi;

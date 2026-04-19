@@ -45,7 +45,7 @@ WiFiClient EspClient;                     // Wifi Client - non-TLS
 #endif  // USE_MQTT_AZURE_IOT
 
 const char kMqttCommands[] PROGMEM = "|"  // No prefix
-#ifndef FIRMWARE_MINIMAL_ONLY
+#ifndef FIRMWARE_MINIMAL
   // SetOption synonyms
   D_SO_MQTTJSONONLY "|"
 #ifdef USE_MQTT_TLS
@@ -57,7 +57,7 @@ const char kMqttCommands[] PROGMEM = "|"  // No prefix
   D_CMND_MQTTFINGERPRINT "|"
 #endif
   D_CMND_MQTTUSER "|" D_CMND_MQTTPASSWORD "|" D_CMND_MQTTKEEPALIVE "|" D_CMND_MQTTTIMEOUT "|" D_CMND_MQTTWIFITIMEOUT "|"
-#if defined(USE_MQTT_TLS) && defined(USE_MQTT_AWS_IOT)
+#if defined(USE_MQTT_TLS) && defined(USE_MQTT_CLIENT_CERT)
   D_CMND_TLSKEY "|"
 #endif
 #ifdef USE_MQTT_FILE
@@ -67,7 +67,7 @@ const char kMqttCommands[] PROGMEM = "|"  // No prefix
   D_CMND_FULLTOPIC "|" D_CMND_PREFIX "|" D_CMND_GROUPTOPIC "|" D_CMND_TOPIC "|" D_CMND_PUBLISH "|" D_CMND_MQTTLOG "|"
   D_CMND_BUTTONTOPIC "|" D_CMND_SWITCHTOPIC "|" D_CMND_BUTTONRETAIN "|" D_CMND_SWITCHRETAIN "|" D_CMND_POWERRETAIN "|"
   D_CMND_SENSORRETAIN "|" D_CMND_INFORETAIN "|" D_CMND_STATERETAIN "|" D_CMND_STATUSRETAIN
-#endif  // FIRMWARE_MINIMAL_ONLY
+#endif  // FIRMWARE_MINIMAL
   ;
 
 SO_SYNONYMS(kMqttSynonyms,
@@ -79,12 +79,12 @@ SO_SYNONYMS(kMqttSynonyms,
 );
 
 void (* const MqttCommand[])(void) PROGMEM = {
-#ifndef FIRMWARE_MINIMAL_ONLY
+#ifndef FIRMWARE_MINIMAL
 #if defined(USE_MQTT_TLS)
   &CmndMqttFingerprint,
 #endif
   &CmndMqttUser, &CmndMqttPassword, &CmndMqttKeepAlive, &CmndMqttTimeout, &CmndMqttWifiTimeout,
-#if defined(USE_MQTT_TLS) && defined(USE_MQTT_AWS_IOT)
+#if defined(USE_MQTT_TLS) && defined(USE_MQTT_CLIENT_CERT)
   &CmndTlsKey,
 #endif
 #ifdef USE_MQTT_FILE
@@ -94,7 +94,7 @@ void (* const MqttCommand[])(void) PROGMEM = {
   &CmndFullTopic, &CmndPrefix, &CmndGroupTopic, &CmndTopic, &CmndPublish, &CmndMqttlog,
   &CmndButtonTopic, &CmndSwitchTopic, &CmndButtonRetain, &CmndSwitchRetain, &CmndPowerRetain,
   &CmndSensorRetain, &CmndInfoRetain, &CmndStateRetain, &CmndStatusRetain
-#endif  // FIRMWARE_MINIMAL_ONLY
+#endif  // FIRMWARE_MINIMAL
   };
 
 struct MQTT {
@@ -111,7 +111,7 @@ struct MQTT {
 #ifdef USE_MQTT_TLS
 
 // This part of code is necessary to store Private Key and Cert in Flash
-#ifdef USE_MQTT_AWS_IOT
+#if defined(USE_MQTT_CLIENT_CERT)
 #include <base64.hpp>
 
 const br_ec_private_key *AWS_IoT_Private_Key = nullptr;
@@ -134,7 +134,7 @@ public:
 
 tls_dir_t tls_dir;          // memory copy of tls_dir from flash
 
-#endif  // USE_MQTT_AWS_IOT
+#endif  // USE_MQTT_CLIENT_CERT
 
 // check whether the fingerprint is filled with a single value
 // Filled with 0x00 = accept any fingerprint and learn it for next time
@@ -250,7 +250,7 @@ void MqttInit(void) {
       static const char * alpn_mqtt = "mqtt";   // needs to be static
       tlsClient->setALPN(&alpn_mqtt, 1);         // need to set alpn to 'mqtt' for AWS IoT
     }
-#ifdef USE_MQTT_AWS_IOT
+#if defined(USE_MQTT_CLIENT_CERT)
     loadTlsDir();   // load key and certificate data from Flash
     if ((nullptr != AWS_IoT_Private_Key) && (nullptr != AWS_IoT_Client_Certificate)) {
       tlsClient->setClientECCert(AWS_IoT_Client_Certificate,
@@ -262,6 +262,7 @@ void MqttInit(void) {
     if (!Settings->flag5.tls_use_fingerprint) {
       tlsClient->setTrustAnchor(Tasmota_TA, nitems(Tasmota_TA));
     }
+    tlsClient->setECDSA(Settings->flag6.tls_use_ecdsa);
 
     MqttClient.setClient(*tlsClient);
   } else {
@@ -566,7 +567,8 @@ bool MqttPublishLib(const char* topic, const uint8_t* payload, unsigned int plen
 
   MqttClient.endPublish();
 
-  yield();  // #3313
+//  yield();  // #3313
+  delay(0);
   return true;
 }
 
@@ -701,15 +703,14 @@ void MqttPublishLoggingAsync(bool refresh) {
 
 void MqttPublishPayload(const char* topic, const char* payload, uint32_t binary_length, bool retained) {
   // Publish <topic> payload string or binary when binary_length set with optional retained
-
-  SHOW_FREE_MEM(PSTR("MqttPublish"));
+  SHOW_FREE_MEM(PSTR("MqttPublishPayload"));
 
   bool binary_data = (binary_length > 0);
   if (!binary_data) {
     binary_length = strlen(payload);
   }
 
-  if (Settings->flag4.mqtt_no_retain) {                   // SetOption104 - Disable all MQTT retained messages, some brokers don't support it: AWS IoT, Losant
+  if (Settings->flag4.mqtt_no_retain) {                  // SetOption104 - Disable all MQTT retained messages, some brokers don't support it: AWS IoT, Losant
     retained = false;                                    // Some brokers don't support retained, they will disconnect if received
   }
 
@@ -793,16 +794,32 @@ void MqttPublishPayloadPrefixTopic_P(uint32_t prefix, const char* subtopic, cons
   prefix 5 = stat using subtopic or RESULT
   prefix 6 = tele using subtopic or RESULT
 */
-  char romram[64];
+  SHOW_FREE_MEM(PSTR("MqttPublishPayloadPrefixTopic_P"));
+/*
+  char romram[64];                      // Claim 64 bytes from 4k stack
   snprintf_P(romram, sizeof(romram), ((prefix > 3) && !Settings->flag.mqtt_response) ? S_RSLT_RESULT : subtopic);  // SetOption4 - Switch between MQTT RESULT or COMMAND
   UpperCase(romram, romram);
 
   prefix &= 3;
-  char stopic[TOPSZ];
+  char stopic[TOPSZ];                   // Claim TOPSZ bytes from 4k stack
   GetTopic_P(stopic, prefix, TasmotaGlobal.mqtt_topic, romram);
   MqttPublishPayload(stopic, payload, binary_length, retained);
+*/
+  // Reduce important stack usage by 200 bytes but adding 52 bytes code
+  char *romram = (char*)malloc(64);     // Claim 64 bytes from 20k heap
+  strcpy_P(romram, ((prefix > 3) && !Settings->flag.mqtt_response) ? S_RSLT_RESULT : subtopic);
+  UpperCase(romram, romram);
 
-#if defined(USE_MQTT_AWS_IOT) || defined(USE_MQTT_AWS_IOT_LIGHT)
+  prefix &= 3;
+  char *htopic = (char*)malloc(TOPSZ);  // Claim TOPSZ bytes from 16k heap
+  GetTopic_P(htopic, prefix, TasmotaGlobal.mqtt_topic, romram);
+  char stopic[strlen_P(htopic) +1];     // Claim only strlen_P bytes from 4k stack
+  strcpy_P(stopic, htopic);
+  free(htopic);                         // Free 16k heap from TOPSZ bytes
+  free(romram);                         // Free 16k heap from 64 bytes
+  MqttPublishPayload(stopic, payload, binary_length, retained);
+
+#if defined(USE_MQTT_CLIENT_CERT) || defined(USE_MQTT_AWS_IOT_LIGHT)
   if ((prefix > 0) && (Settings->flag4.awsiot_shadow) && (Mqtt.connected)) {    // placeholder for SetOptionXX
     // compute the target topic
     char *topic = SettingsText(SET_MQTT_TOPIC);
@@ -828,7 +845,7 @@ void MqttPublishPayloadPrefixTopic_P(uint32_t prefix, const char* subtopic, cons
     AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "Updated shadow: %s"), romram);
     yield();  // #3313
   }
-#endif // USE_MQTT_AWS_IOT
+#endif // USE_MQTT_CLIENT_CERT
 }
 
 void MqttPublishPayloadPrefixTopic_P(uint32_t prefix, const char* subtopic, const char* payload, uint32_t binary_length) {
@@ -856,6 +873,8 @@ void MqttPublishPayloadPrefixTopicRulesProcess_P(uint32_t prefix, const char* su
 
 void MqttPublishPrefixTopic_P(uint32_t prefix, const char* subtopic, bool retained) {
   // Publish <prefix>/<device>/<RESULT or <subtopic>> default ResponseData string with optional retained
+  SHOW_FREE_MEM(PSTR("MqttPublishPrefixTopic_P"));
+
   MqttPublishPayloadPrefixTopic_P(prefix, subtopic, ResponseData(), 0, retained);
 }
 
@@ -867,6 +886,8 @@ void MqttPublishPrefixTopic_P(uint32_t prefix, const char* subtopic) {
 void MqttPublishPrefixTopicRulesProcess_P(uint32_t prefix, const char* subtopic, bool retained) {
   // Publish <prefix>/<device>/<RESULT or <subtopic>> default ResponseData string with optional retained
   //   then process rules
+  SHOW_FREE_MEM(PSTR("MqttPublishPrefixTopicRulesProcess_P"));
+
   MqttPublishPrefixTopic_P(prefix, subtopic, retained);
   XdrvRulesProcess(0);
 }
@@ -956,6 +977,10 @@ void MqttPublishPowerBlinkState(uint32_t device) {
 
 uint16_t MqttConnectCount(void) {
   return Mqtt.connect_count;
+}
+
+bool MqttTLSEnabled(void) {
+  return Mqtt.mqtt_tls;
 }
 
 void MqttDisconnected(int state) {
@@ -1087,6 +1112,9 @@ void MqttConnected(void) {
 }
 
 void MqttReconnect(void) {
+  if (!strlen(TasmotaGlobal.mqtt_client)) {  // Do it here as it needs the MAC address from a possible hosted MCU available after WiFi connection
+    Format(TasmotaGlobal.mqtt_client, SettingsText(SET_MQTT_CLIENT), sizeof(TasmotaGlobal.mqtt_client));
+  }
   Mqtt.allowed = Settings->flag.mqtt_enabled && (TasmotaGlobal.restart_flag == 0);  // SetOption3 - Enable MQTT, and don't connect if restart in process
   if (Mqtt.allowed) {
 #if defined(USE_MQTT_AZURE_DPS_SCOPEID) && defined(USE_MQTT_AZURE_DPS_PRESHAREDKEY)
@@ -1169,19 +1197,21 @@ void MqttReconnect(void) {
     MqttClient.setClient(EspClient);
     MqttNonTLSWarning();
   }
-#ifdef USE_MQTT_AWS_IOT
-  // re-assign private keys in case it was updated in between
+#if defined(USE_MQTT_CLIENT_CERT)
+  // re-assign private key in case it was updated in between
   if (Mqtt.mqtt_tls) {
     if ((nullptr != AWS_IoT_Private_Key) && (nullptr != AWS_IoT_Client_Certificate)) {
-      // if private key is there, we remove user/pwd
-      mqtt_user = nullptr;
-      mqtt_pwd  = nullptr;
+      #ifdef USE_MQTT_AWS_IOT
+        // if private key is there, we remove user/pwd
+        mqtt_user = nullptr;
+        mqtt_pwd = nullptr;
+      #endif
       tlsClient->setClientECCert(AWS_IoT_Client_Certificate,
                                 AWS_IoT_Private_Key,
                                 0xFFFF /* all usages, don't care */, 0);
     }
   }
-#endif  // USE_MQTT_AWS_IOT
+#endif  // USE_MQTT_CLIENT_CERT
 #ifdef USE_MQTT_AZURE_IOT
   String azureMqtt_password = SettingsText(SET_MQTT_PWD);
   if (azureMqtt_password.indexOf("SharedAccessSignature") == -1) {
@@ -1365,6 +1395,17 @@ void MqttReconnect(void) {
       120 : 376 : BR_ALERT_NO_APPLICATION_PROTOCOL
 */
       AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_MQTT "TLS connection error: %d"), tlsClient->getLastError());
+
+#if defined(ESP32) || (defined(ESP8266) && defined(USE_MQTT_TLS_ECDSA))
+      if (tlsClient->getLastError() == 296) {
+        // in this special case of cipher mismatch, we force enable ECDSA
+        // this would be the case for newer letsencrypt certificates now defaulting
+        // to EC certificates requiring ECDSA instead of RSA
+        Settings->flag6.tls_use_ecdsa = true;
+        tlsClient->setECDSA(Settings->flag6.tls_use_ecdsa);
+        AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_MQTT "TLS now enabling ECDSA 'SetOption165 1'"), tlsClient->getLastError());
+      }
+#endif // defined(ESP32) || (defined(ESP8266) && defined(USE_MQTT_TLS_ECDSA))
     }
 #endif
 /*
@@ -1382,6 +1423,18 @@ void MqttReconnect(void) {
 */
     MqttDisconnected(MqttClient.state());
   }
+#ifdef USE_MQTT_TLS
+  if (Mqtt.mqtt_tls) {
+    int32_t cipher_suite = tlsClient->getLastCipherSuite();
+    if (BR_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 == cipher_suite) {
+      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "TLS cipher suite: %s"), PSTR("ECDHE_RSA_AES_128_GCM_SHA256"));
+    } else if (BR_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 == cipher_suite) {
+      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "TLS cipher suite: %s"), PSTR("ECDHE_ECDSA_AES_128_GCM_SHA256"));
+    } else if (0 != cipher_suite) {
+      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "TLS cipher suite: 0x%04X"), cipher_suite);
+    }
+  }
+#endif // USE_MQTT_TLS
 }
 
 void MqttCheck(void) {
@@ -1781,7 +1834,7 @@ void CmndStatusRetain(void) {
 /*********************************************************************************************\
  * TLS private key and certificate - store into Flash
 \*********************************************************************************************/
-#if defined(USE_MQTT_TLS) && defined(USE_MQTT_AWS_IOT)
+#if defined(USE_MQTT_TLS) && defined(USE_MQTT_CLIENT_CERT)
 
 #ifdef ESP32
 static uint8_t * tls_spi_start = nullptr;
@@ -1999,14 +2052,7 @@ void CmndTlsDump(void) {
 
 #define WEB_HANDLE_MQTT "mq"
 
-const char S_CONFIGURE_MQTT[] PROGMEM = D_CONFIGURE_MQTT;
-
-const char HTTP_BTN_MENU_MQTT[] PROGMEM =
-  "<p><form action='" WEB_HANDLE_MQTT "' method='get'><button>" D_CONFIGURE_MQTT "</button></form></p>";
-
 const char HTTP_FORM_MQTT1[] PROGMEM =
-  "<fieldset><legend><b>&nbsp;" D_MQTT_PARAMETERS "&nbsp;</b></legend>"
-  "<form method='get' action='" WEB_HANDLE_MQTT "'>"
   "<p><b>" D_HOST "</b> (" MQTT_HOST ")<br><input id='mh' placeholder=\"" MQTT_HOST "\" value=\"%s\"></p>"
   "<p><b>" D_PORT "</b> (" STR(MQTT_PORT) ")<br><input id='ml' placeholder='" STR(MQTT_PORT) "' value='%d'></p>"
 #ifdef USE_MQTT_TLS
@@ -2035,6 +2081,8 @@ void HandleMqttConfiguration(void)
 
   WSContentStart_P(PSTR(D_CONFIGURE_MQTT));
   WSContentSendStyle();
+  WSContentSend_P(HTTP_FIELDSET_LEGEND, PSTR(D_MQTT_PARAMETERS));
+  WSContentSend_P(HTTP_FORM_GET_ACTION, PSTR(WEB_HANDLE_MQTT));
   WSContentSend_P(HTTP_FORM_MQTT1,
     SettingsTextEscaped(SET_MQTT_HOST).c_str(),
     Settings->mqtt_port,
@@ -2066,6 +2114,7 @@ void MqttSaveSettings(void) {
 #endif
   ExecuteWebCommand((char*)cmnd.c_str());
 }
+
 #endif  // USE_WEBSERVER
 
 /*********************************************************************************************\
@@ -2084,12 +2133,23 @@ bool Xdrv02(uint32_t function)
 #ifdef USE_WEBSERVER
 #ifndef FIRMWARE_MINIMAL    // not needed in minimal/safeboot because of disabled feature and Settings are not saved anyways
       case FUNC_WEB_ADD_BUTTON:
-        WSContentSend_P(HTTP_BTN_MENU_MQTT);
+        WSContentSend_P(HTTP_FORM_BUTTON, PSTR(WEB_HANDLE_MQTT), PSTR(D_CONFIGURE_MQTT));
         break;
       case FUNC_WEB_ADD_HANDLER:
         WebServer_on(PSTR("/" WEB_HANDLE_MQTT), HandleMqttConfiguration);
         break;
-#endif // FIRMWARE_MINIMAL
+#ifdef USE_WEB_STATUS_LINE
+      case FUNC_WEB_STATUS_RIGHT:
+        if (MqttIsConnected()) {
+          if (MqttTLSEnabled()) {
+            WSContentStatusSticker(PSTR(D_MQTT_TLS_ENABLE));
+          } else {
+            WSContentStatusSticker(PSTR(D_MQTT));
+          }
+        }
+        break;
+#endif  // USE_WEB_STATUS_LINE
+#endif  // not FIRMWARE_MINIMAL
 #endif  // USE_WEBSERVER
       case FUNC_COMMAND:
         result = DecodeCommand(kMqttCommands, MqttCommand, kMqttSynonyms);
